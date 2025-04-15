@@ -26,11 +26,12 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             VoronoiWallpaperTheme {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
-                ) {
-                    WallpaperSetupScreen()
+                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
+                    WallpaperSetupScreen(modifier = Modifier
+                        .padding(innerPadding)
+                        .fillMaxSize()
+                        .padding(24.dp),
+                    )
                 }
             }
         }
@@ -38,13 +39,11 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun WallpaperSetupScreen() {
+fun WallpaperSetupScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
+        modifier,
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
