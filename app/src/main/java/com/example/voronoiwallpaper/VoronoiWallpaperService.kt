@@ -5,8 +5,6 @@ import android.os.Handler
 import android.os.Looper
 import android.service.wallpaper.WallpaperService
 import android.view.SurfaceHolder
-//import kotlin.math.pow
-//import kotlin.math.sqrt
 import kotlin.random.Random
 
 class VoronoiWallpaperService : WallpaperService() {
