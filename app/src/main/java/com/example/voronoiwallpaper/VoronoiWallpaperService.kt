@@ -83,25 +83,6 @@ class VoronoiWallpaperService : WallpaperService() {
             }
         }
 
-        private fun updatePoints() {
-            points.forEachIndexed { index, point ->
-                val velocity = velocities[index]
-
-                point.x += velocity.x
-                point.y += velocity.y
-
-                // Bounce off walls with slight randomness
-                if (point.x <= 0 || point.x >= width) {
-                    velocity.x *= -1 * (0.9f + random.nextFloat() * 0.2f)
-                    point.x = point.x.coerceIn(0f, width.toFloat())
-                }
-                if (point.y <= 0 || point.y >= height) {
-                    velocity.y *= -1 * (0.9f + random.nextFloat() * 0.2f)
-                    point.y = point.y.coerceIn(0f, height.toFloat())
-                }
-            }
-        }
-
         private fun drawFrame() {
             if (!visible) return
 
@@ -144,9 +125,28 @@ class VoronoiWallpaperService : WallpaperService() {
             }
 
             // Draw points (optional)
-            paint.color = Color.WHITE
+            paint.color = Color.argb(100, 255, 255, 255)
             points.forEach { point ->
                 canvas.drawCircle(point.x, point.y, pointRadius, paint)
+            }
+        }
+
+        private fun updatePoints() {
+            points.forEachIndexed { index, point ->
+                val velocity = velocities[index]
+
+                point.x += velocity.x
+                point.y += velocity.y
+
+                // Bounce off walls with slight randomness
+                if (point.x <= 0 || point.x >= width) {
+                    velocity.x *= -1 * (0.9f + random.nextFloat() * 0.2f)
+                    point.x = point.x.coerceIn(0f, width.toFloat())
+                }
+                if (point.y <= 0 || point.y >= height) {
+                    velocity.y *= -1 * (0.9f + random.nextFloat() * 0.2f)
+                    point.y = point.y.coerceIn(0f, height.toFloat())
+                }
             }
         }
 
