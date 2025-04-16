@@ -8,6 +8,8 @@ import android.view.SurfaceHolder
 import kotlin.random.Random
 import androidx.core.graphics.createBitmap
 import androidx.core.graphics.set
+import kotlin.math.max
+import kotlin.math.sqrt
 
 class VoronoiWallpaperService : WallpaperService() {
 
@@ -15,9 +17,7 @@ class VoronoiWallpaperService : WallpaperService() {
 
     inner class VoronoiEngine : Engine() {
 
-
         private val handler = Handler(Looper.getMainLooper())
-
 
         private var width = 0
         private var height = 0
@@ -28,7 +28,7 @@ class VoronoiWallpaperService : WallpaperService() {
         // Voronoi properties
         private val numPoints = 25
         private val points = Array(numPoints) { PointF() }
-        private val colors = IntArray(numPoints)
+        private val colors = generateDistinctColors(numPoints)
         private val velocities = Array(numPoints) { PointF() }
         private val random = Random.Default
 
@@ -38,7 +38,6 @@ class VoronoiWallpaperService : WallpaperService() {
         private val frameDelay = 50L // 20 FPS
 
         private val drawRunnable = Runnable { drawFrame() }
-
 
         // Double buffering system
         private lateinit var renderBuffer: Bitmap
@@ -65,7 +64,6 @@ class VoronoiWallpaperService : WallpaperService() {
             renderBuffer = createBitmap(width / pixelStep + 1, height / pixelStep + 1)
             bufferCanvas = Canvas(renderBuffer)
             initializePoints()
-            drawFrame()
         }
 
         override fun onSurfaceDestroyed(holder: SurfaceHolder) {
@@ -80,11 +78,11 @@ class VoronoiWallpaperService : WallpaperService() {
                     random.nextFloat() * width,
                     random.nextFloat() * height
                 )
-                colors[i] = Color.HSVToColor(floatArrayOf(
-                    random.nextFloat() * 360f,
-                    0.7f + random.nextFloat() * 0.3f,
-                    0.8f + random.nextFloat() * 0.2f
-                ))
+//                colors[i] = Color.HSVToColor(floatArrayOf(
+//                    random.nextFloat() * 360f,
+//                    0.7f + random.nextFloat() * 0.3f,
+//                    0.8f + random.nextFloat() * 0.2f
+//                ))
                 velocities[i].set(
                     (random.nextFloat() - 0.5f) * 5f,
                     (random.nextFloat() - 0.5f) * 5f
@@ -132,9 +130,9 @@ class VoronoiWallpaperService : WallpaperService() {
                 val x = bx * pixelStep
                 for (by in 0 until renderBuffer.height) {
                     val y = by * pixelStep
-
                     var closest = 0
                     var minDist = Float.MAX_VALUE
+
                     for (i in 0 until numPoints) {
                         val dx = x - points[i].x
                         val dy = y - points[i].y
@@ -148,23 +146,6 @@ class VoronoiWallpaperService : WallpaperService() {
                     renderBuffer[bx, by] = colors[closest]
                 }
             }
-
-//            // 2. Draw transparent black points
-//            if (drawPoints) {
-//                points.forEach { point ->
-//                    // Convert screen coordinates to buffer space
-//                    val bufferX = point.x / pixelStep
-//                    val bufferY = point.y / pixelStep
-//                    val bufferRadius = pointRadius / pixelStep
-//
-//                    bufferCanvas.drawCircle(
-//                        bufferX,
-//                        bufferY,
-//                        bufferRadius.coerceAtLeast(1.5f), // Minimum visible radius
-//                        pointPaint
-//                    )
-//                }
-//            }
         }
 
         private fun updatePoints() {
@@ -189,6 +170,60 @@ class VoronoiWallpaperService : WallpaperService() {
             // Draw points at full resolution with anti-aliasing
             points.forEach { point ->
                 canvas.drawCircle(point.x, point.y, pointRadius, pointPaint)
+            }
+        }
+
+//        private fun generateDistinctColors(count: Int): IntArray {
+//            val colors = IntArray(count)
+//            val hueStep = 360f / count
+//
+//            for (i in 0 until count) {
+//                val hue = (i * hueStep) % 360f
+//                // Keep saturation and value in vibrant ranges
+//                val saturation = 0.7f + 0.3f * Random.nextFloat() // 0.7-0.9
+//                val value = 0.8f + 0.15f * Random.nextFloat()    // 0.8-0.95
+//
+//                colors[i] = Color.HSVToColor(floatArrayOf(hue, saturation, value))
+//            }
+//
+//            // Shuffle to avoid color sequence being too predictable
+//            return colors.apply { shuffle() }
+//        }
+
+        private fun generateDistinctColors(count: Int): IntArray {
+            val colors = IntArray(count)
+            val goldenAngle = 137.508f // Golden ratio-based angle for optimal distribution
+            var hue = Random.nextFloat() * 360 // Random starting hue
+
+            // Calculate how many variations we need for saturation and value
+            val saturationBands = max(2, sqrt(count.toFloat()).toInt())
+            val valueBands = max(2, sqrt(count.toFloat()).toInt())
+
+            repeat(count) { i ->
+                // Advance hue by golden angle
+                hue = (hue + goldenAngle) % 360
+
+                // Calculate saturation and value bands
+                val saturation = 0.65f + 0.3f * (i % saturationBands) / (saturationBands - 1)
+                val value = 0.75f + 0.2f * (i / saturationBands % valueBands) / (valueBands - 1)
+
+                colors[i] = Color.HSVToColor(floatArrayOf(
+                    hue,
+                    saturation.coerceIn(0.65f, 0.95f),
+                    value.coerceIn(0.75f, 0.95f)
+                ))
+            }
+
+            return colors.apply { shuffle() }
+        }
+
+        // Extension function to shuffle IntArray
+        private fun IntArray.shuffle() {
+            for (i in size - 1 downTo 1) {
+                val j = Random.nextInt(i + 1)
+                val temp = this[i]
+                this[i] = this[j]
+                this[j] = temp
             }
         }
     }
