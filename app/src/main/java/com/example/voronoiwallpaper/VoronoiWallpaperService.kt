@@ -4,6 +4,7 @@ import android.graphics.*
 import android.os.Handler
 import android.os.Looper
 import android.service.wallpaper.WallpaperService
+import android.view.MotionEvent
 import android.view.SurfaceHolder
 import kotlin.random.Random
 import androidx.core.graphics.createBitmap
@@ -25,10 +26,16 @@ class VoronoiWallpaperService : WallpaperService() {
         private val pointAlpha = 128 // 50% transparency
         private val drawPoints = true
 
+        private val doubleTapThreshold = 300L // milliseconds
+        private val maxTaps = 2 // Double-tap
+        private var tapCount = 0
+        private var lastTapTime = 0L
+        private var isPaused = false
+
         // Voronoi properties
         private val numPoints = 25
         private val points = Array(numPoints) { PointF() }
-        private val colors = generateDistinctColors(numPoints)
+        private val colors = generateDistinctColors()
         private val velocities = Array(numPoints) { PointF() }
         private val random = Random.Default
 
@@ -72,6 +79,35 @@ class VoronoiWallpaperService : WallpaperService() {
             handler.removeCallbacks(drawRunnable)
         }
 
+        override fun onTouchEvent(event: MotionEvent?) {
+            if (event?.action == MotionEvent.ACTION_UP) {
+                val currentTime = System.currentTimeMillis()
+
+                // Reset count if taps are too slow
+                if (currentTime - lastTapTime > doubleTapThreshold) {
+                    tapCount = 0
+                }
+
+                tapCount++
+                lastTapTime = currentTime
+
+                // Check for double-tap
+                if (tapCount >= maxTaps) {
+                    isPaused = !isPaused
+                    tapCount = 0
+
+                    if (!isPaused) {
+                        drawFrame() // Redraw immediately when unpausing
+                    }
+                }
+
+                // Reset counter after timeout
+                handler.removeCallbacks(drawRunnable)
+                handler.postDelayed(drawRunnable, doubleTapThreshold)
+            }
+            super.onTouchEvent(event)
+        }
+
         private fun initializePoints() {
             for (i in 0 until numPoints) {
                 points[i].set(
@@ -91,7 +127,7 @@ class VoronoiWallpaperService : WallpaperService() {
         }
 
         private fun drawFrame() {
-            if (!visible) return
+            if (!visible || isPaused) return
 
             // 1. Update points first
             updatePoints()
@@ -190,16 +226,16 @@ class VoronoiWallpaperService : WallpaperService() {
 //            return colors.apply { shuffle() }
 //        }
 
-        private fun generateDistinctColors(count: Int): IntArray {
-            val colors = IntArray(count)
+        private fun generateDistinctColors(): IntArray {
+            val colors = IntArray(numPoints)
             val goldenAngle = 137.508f // Golden ratio-based angle for optimal distribution
             var hue = Random.nextFloat() * 360 // Random starting hue
 
             // Calculate how many variations we need for saturation and value
-            val saturationBands = max(2, sqrt(count.toFloat()).toInt())
-            val valueBands = max(2, sqrt(count.toFloat()).toInt())
+            val saturationBands = max(2, sqrt(numPoints.toFloat()).toInt())
+            val valueBands = max(2, sqrt(numPoints.toFloat()).toInt())
 
-            repeat(count) { i ->
+            repeat(numPoints) { i ->
                 // Advance hue by golden angle
                 hue = (hue + goldenAngle) % 360
 
