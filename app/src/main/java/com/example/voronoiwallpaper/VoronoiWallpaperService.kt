@@ -26,8 +26,8 @@ class VoronoiWallpaperService : WallpaperService() {
         private val pointAlpha = 128 // 50% transparency
         private val drawPoints = true
 
-        private val doubleTapThreshold = 300L // milliseconds
-        private val maxTaps = 2 // Double-tap
+        private val doubleTapThreshold = 400L // milliseconds
+        private val maxTaps = 3 // Triple-tap
         private var tapCount = 0
         private var lastTapTime = 0L
         private var isPaused = false
@@ -42,9 +42,14 @@ class VoronoiWallpaperService : WallpaperService() {
         // Optimization
         private val pixelStep = 4 // Higher values improve performance but reduce quality
         private val pointRadius = 5f
-        private val frameDelay = 50L // 20 FPS
+        private val frameDelay = 16L // ~60 FPS
 
-        private val drawRunnable = Runnable { drawFrame() }
+        private val drawRunnable = object : Runnable {
+            override fun run() {
+                drawFrame()
+                if (!isPaused) handler.postDelayed(this, frameDelay)
+            }
+        }
 
         // Double buffering system
         private lateinit var renderBuffer: Bitmap
@@ -58,7 +63,7 @@ class VoronoiWallpaperService : WallpaperService() {
         override fun onVisibilityChanged(visible: Boolean) {
             this.visible = visible
             if (visible) {
-                drawFrame()
+                handler.post(drawRunnable)
             } else {
                 handler.removeCallbacks(drawRunnable)
             }
@@ -79,31 +84,33 @@ class VoronoiWallpaperService : WallpaperService() {
             handler.removeCallbacks(drawRunnable)
         }
 
+        override fun onDestroy() {
+            handler.removeCallbacksAndMessages(null)
+            super.onDestroy()
+        }
+
         override fun onTouchEvent(event: MotionEvent?) {
             if (event?.action == MotionEvent.ACTION_UP) {
-                val currentTime = System.currentTimeMillis()
+                val now = System.currentTimeMillis()
+                val elapsedTime = now - lastTapTime
 
-                // Reset count if taps are too slow
-                if (currentTime - lastTapTime > doubleTapThreshold) {
+                // Test the counter before it is used and Reset count if taps are too slow
+                if (tapCount < maxTaps && tapCount != 0 && elapsedTime > doubleTapThreshold) {
                     tapCount = 0
                 }
 
                 tapCount++
-                lastTapTime = currentTime
+                lastTapTime = now
 
                 // Check for double-tap
-                if (tapCount >= maxTaps) {
+                if (tapCount == maxTaps) {
                     isPaused = !isPaused
                     tapCount = 0
 
                     if (!isPaused) {
-                        drawFrame() // Redraw immediately when resuming from pause
+                        handler.post(drawRunnable) // Redraw immediately when resuming from pause
                     }
                 }
-
-                // Reset counter after timeout
-                handler.removeCallbacks(drawRunnable)
-                handler.postDelayed(drawRunnable, doubleTapThreshold)
             }
             super.onTouchEvent(event)
         }
