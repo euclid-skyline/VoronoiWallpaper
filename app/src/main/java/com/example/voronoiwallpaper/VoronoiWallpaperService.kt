@@ -97,7 +97,7 @@ class VoronoiWallpaperService : WallpaperService() {
                     tapCount = 0
 
                     if (!isPaused) {
-                        drawFrame() // Redraw immediately when unpausing
+                        drawFrame() // Redraw immediately when resuming from pause
                     }
                 }
 
@@ -170,9 +170,13 @@ class VoronoiWallpaperService : WallpaperService() {
                     var minDist = Float.MAX_VALUE
 
                     for (i in 0 until numPoints) {
-                        val dx = x - points[i].x
-                        val dy = y - points[i].y
-                        val dist = dx * dx + dy * dy
+//                        val dx = x - points[i].x
+//                        val dy = y - points[i].y
+//                        val dist = dx * dx + dy * dy  // square Euclidean distance for performance
+                        // Manhattan distance. Do not use abs() for performance
+                        val dx = if (x >= points[i].x) x - points[i].x else points[i].x - x
+                        val dy = if (y >= points[i].y) y - points[i].y else points[i].y - y
+                        val dist = dx + dy
 
                         if (dist < minDist) {
                             minDist = dist
