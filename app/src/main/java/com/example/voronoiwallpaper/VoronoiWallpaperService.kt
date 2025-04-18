@@ -34,13 +34,15 @@ class VoronoiWallpaperService : WallpaperService() {
 
         // Voronoi properties
         private val numPoints = 25
+
+        private val colors = IntArray(numPoints) { 0 }
         private val points = Array(numPoints) { PointF() }
-        private val colors = generateDistinctColors()
         private val velocities = Array(numPoints) { PointF() }
+
         private val random = Random.Default
 
         // Optimization
-        private val pixelStep = 4 // Higher values improve performance but reduce quality
+        private val pixelStep = 3   // Higher values improve performance but reduce quality
         private val pointRadius = 5f
         private val frameDelay = 16L // ~60 FPS
 
@@ -59,6 +61,8 @@ class VoronoiWallpaperService : WallpaperService() {
             style = Paint.Style.FILL
             isAntiAlias = true
         }
+        private lateinit var renderBufferRect: Rect
+        private lateinit var screenRect: Rect
 
         override fun onVisibilityChanged(visible: Boolean) {
             this.visible = visible
@@ -75,6 +79,8 @@ class VoronoiWallpaperService : WallpaperService() {
 
             renderBuffer = createBitmap(width / pixelStep + 1, height / pixelStep + 1)
             bufferCanvas = Canvas(renderBuffer)
+            renderBufferRect = Rect(0, 0, renderBuffer.width, renderBuffer.height)
+            screenRect = Rect(0, 0, width, height)
             initializePoints()
         }
 
@@ -131,6 +137,7 @@ class VoronoiWallpaperService : WallpaperService() {
                     (random.nextFloat() - 0.5f) * 5f
                 )
             }
+            generateDistinctColors()
         }
 
         private fun drawFrame() {
@@ -149,12 +156,7 @@ class VoronoiWallpaperService : WallpaperService() {
                 canvas = holder.lockCanvas()
                 canvas?.let {
                     it.drawColor(Color.BLACK)
-                    it.drawBitmap(
-                        renderBuffer,
-                        Rect(0, 0, renderBuffer.width, renderBuffer.height),
-                        Rect(0, 0, width, height),
-                        null
-                    )
+                    it.drawBitmap(renderBuffer, renderBufferRect, screenRect, null)
 
                     // 4. Draw Voronoi points directly to main canvas
                     if (drawPoints) {
@@ -174,21 +176,27 @@ class VoronoiWallpaperService : WallpaperService() {
                 for (by in 0 until renderBuffer.height) {
                     val y = by * pixelStep
                     var closest = 0
-                    var minDist = Float.MAX_VALUE
+                    var minDistance = Float.MAX_VALUE
 
                     for (i in 0 until numPoints) {
-//                        val dx = x - points[i].x
-//                        val dy = y - points[i].y
-//                        val dist = dx * dx + dy * dy  // square Euclidean distance for performance
-                        // Manhattan distance. Do not use abs() for performance
-                        val dx = if (x >= points[i].x) x - points[i].x else points[i].x - x
-                        val dy = if (y >= points[i].y) y - points[i].y else points[i].y - y
-                        val dist = dx + dy
+                        val dx = x - points[i].x
+                        val dy = y - points[i].y
 
-                        if (dist < minDist) {
-                            minDist = dist
+                        // Use square Euclidean distance for performance
+                        val squareDistance = dx * dx + dy * dy
+                        if (squareDistance < minDistance) {
+                            minDistance = squareDistance
                             closest = i
                         }
+
+//                        // Use Manhattan distance. Do not use abs() for performance
+//                        val dx = if (x >= points[i].x) x - points[i].x else points[i].x - x
+//                        val dy = if (y >= points[i].y) y - points[i].y else points[i].y - y
+//                        val distance = dx + dy
+//                        if (distance < minDistance) {
+//                            minDistance = distance
+//                            closest = i
+//                        }
                     }
                     renderBuffer[bx, by] = colors[closest]
                 }
@@ -220,11 +228,10 @@ class VoronoiWallpaperService : WallpaperService() {
             }
         }
 
-//        private fun generateDistinctColors(count: Int): IntArray {
-//            val colors = IntArray(count)
-//            val hueStep = 360f / count
+//        private fun generateDistinctColors() {
+//            val hueStep = 360f / numPoints
 //
-//            for (i in 0 until count) {
+//            for (i in 0 until numPoints) {
 //                val hue = (i * hueStep) % 360f
 //                // Keep saturation and value in vibrant ranges
 //                val saturation = 0.7f + 0.3f * Random.nextFloat() // 0.7-0.9
@@ -234,11 +241,10 @@ class VoronoiWallpaperService : WallpaperService() {
 //            }
 //
 //            // Shuffle to avoid color sequence being too predictable
-//            return colors.apply { shuffle() }
+//            colors.apply { shuffle() }
 //        }
 
-        private fun generateDistinctColors(): IntArray {
-            val colors = IntArray(numPoints)
+        private fun generateDistinctColors() {
             val goldenAngle = 137.508f // Golden ratio-based angle for optimal distribution
             var hue = Random.nextFloat() * 360 // Random starting hue
 
@@ -257,11 +263,11 @@ class VoronoiWallpaperService : WallpaperService() {
                 colors[i] = Color.HSVToColor(floatArrayOf(
                     hue,
                     saturation.coerceIn(0.65f, 0.95f),
-                    value.coerceIn(0.75f, 0.95f)
-                ))
+                    value.coerceIn(0.75f, 0.95f))
+                )
             }
 
-            return colors.apply { shuffle() }
+            colors.apply { shuffle() }
         }
 
         // Extension function to shuffle IntArray
