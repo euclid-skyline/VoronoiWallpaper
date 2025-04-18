@@ -127,11 +127,6 @@ class VoronoiWallpaperService : WallpaperService() {
                     random.nextFloat() * width,
                     random.nextFloat() * height
                 )
-//                colors[i] = Color.HSVToColor(floatArrayOf(
-//                    random.nextFloat() * 360f,
-//                    0.7f + random.nextFloat() * 0.3f,
-//                    0.8f + random.nextFloat() * 0.2f
-//                ))
                 velocities[i].set(
                     (random.nextFloat() - 0.5f) * 5f,
                     (random.nextFloat() - 0.5f) * 5f
@@ -175,29 +170,10 @@ class VoronoiWallpaperService : WallpaperService() {
                 val x = bx * pixelStep
                 for (by in 0 until renderBuffer.height) {
                     val y = by * pixelStep
-                    var closest = 0
-                    var minDistance = Float.MAX_VALUE
+                    val closest = findClosestPointIndexEuclidean(x, y)
+//                    val closest = findClosestPointIndexManhattan(x, y)
+//                    val closest = findClosestPointIndexChebyshev(x, y)
 
-                    for (i in 0 until numPoints) {
-                        val dx = x - points[i].x
-                        val dy = y - points[i].y
-
-                        // Use square Euclidean distance for performance
-                        val squareDistance = dx * dx + dy * dy
-                        if (squareDistance < minDistance) {
-                            minDistance = squareDistance
-                            closest = i
-                        }
-
-//                        // Use Manhattan distance. Do not use abs() for performance
-//                        val dx = if (x >= points[i].x) x - points[i].x else points[i].x - x
-//                        val dy = if (y >= points[i].y) y - points[i].y else points[i].y - y
-//                        val distance = dx + dy
-//                        if (distance < minDistance) {
-//                            minDistance = distance
-//                            closest = i
-//                        }
-                    }
                     renderBuffer[bx, by] = colors[closest]
                 }
             }
@@ -228,22 +204,6 @@ class VoronoiWallpaperService : WallpaperService() {
             }
         }
 
-//        private fun generateDistinctColors() {
-//            val hueStep = 360f / numPoints
-//
-//            for (i in 0 until numPoints) {
-//                val hue = (i * hueStep) % 360f
-//                // Keep saturation and value in vibrant ranges
-//                val saturation = 0.7f + 0.3f * Random.nextFloat() // 0.7-0.9
-//                val value = 0.8f + 0.15f * Random.nextFloat()    // 0.8-0.95
-//
-//                colors[i] = Color.HSVToColor(floatArrayOf(hue, saturation, value))
-//            }
-//
-//            // Shuffle to avoid color sequence being too predictable
-//            colors.apply { shuffle() }
-//        }
-
         private fun generateDistinctColors() {
             val goldenAngle = 137.508f // Golden ratio-based angle for optimal distribution
             var hue = Random.nextFloat() * 360 // Random starting hue
@@ -270,6 +230,22 @@ class VoronoiWallpaperService : WallpaperService() {
             colors.apply { shuffle() }
         }
 
+        private fun generateDistinctColors1() {
+            val hueStep = 360f / numPoints
+
+            for (i in 0 until numPoints) {
+                val hue = (i * hueStep) % 360f
+                // Keep saturation and value in vibrant ranges
+                val saturation = 0.7f + 0.3f * Random.nextFloat() // 0.7-0.9
+                val value = 0.8f + 0.15f * Random.nextFloat()    // 0.8-0.95
+
+                colors[i] = Color.HSVToColor(floatArrayOf(hue, saturation, value))
+            }
+
+            // Shuffle to avoid color sequence being too predictable
+            colors.apply { shuffle() }
+        }
+
         // Extension function to shuffle IntArray
         private fun IntArray.shuffle() {
             for (i in size - 1 downTo 1) {
@@ -278,6 +254,64 @@ class VoronoiWallpaperService : WallpaperService() {
                 this[i] = this[j]
                 this[j] = temp
             }
+        }
+
+        private fun findClosestPointIndexEuclidean(x: Int, y: Int): Int {
+            var closestIndex = 0
+            var minDistance = Float.MAX_VALUE
+
+            points.forEachIndexed { index, point ->
+                val dx = x - point.x
+                val dy = y - point.y
+                val distance = dx * dx + dy * dy // Use square Euclidean distance to improve performance
+
+                if (distance < minDistance) {
+                    minDistance = distance
+                    closestIndex = index
+                }
+            }
+
+            return closestIndex
+        }
+
+        private fun findClosestPointIndexManhattan(x: Int, y: Int): Int {
+            var closestIndex = 0
+            var minDistance = Float.MAX_VALUE
+
+            points.forEachIndexed { index, point ->
+
+                // Use Manhattan distance. Do not use abs() for performance
+                val dx = if (x >= point.x) x - point.x else point.x - x
+                val dy = if (y >= point.y) y - point.y else point.y - y
+                val distance = dx + dy
+
+                if (distance < minDistance) {
+                    minDistance = distance
+                    closestIndex = index
+                }
+            }
+
+            return closestIndex
+        }
+
+        private fun findClosestPointIndexChebyshev(x: Int, y: Int): Int {
+            var closestIndex = 0
+            var minDistance = Float.MAX_VALUE
+
+            points.forEachIndexed { index, point ->
+
+                // Use Chebyshev distance. Do not use abs() for performance
+                val dx = if (x >= point.x) x - point.x else point.x - x
+                val dy = if (y >= point.y) y - point.y else point.y - y
+                val distance = max(dx, dy)
+
+                if (distance < minDistance) {
+                    minDistance = distance
+                    closestIndex = index
+                }
+            }
+
+            return closestIndex
         }
     }
 }
