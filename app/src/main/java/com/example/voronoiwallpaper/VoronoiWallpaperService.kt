@@ -8,7 +8,7 @@ import android.view.MotionEvent
 import android.view.SurfaceHolder
 import kotlin.random.Random
 import androidx.core.graphics.createBitmap
-import androidx.core.graphics.set
+//import androidx.core.graphics.set
 import kotlin.math.max
 import kotlin.math.sqrt
 
@@ -26,7 +26,7 @@ class VoronoiWallpaperService : WallpaperService() {
         private val pointAlpha = 128 // 50% transparency
         private val drawPoints = true
 
-        private val doubleTapThreshold = 400L // milliseconds
+        private val maxTapInterval = 400L // milliseconds
         private val maxTaps = 3 // Triple-tap
         private var tapCount = 0
         private var lastTapTime = 0L
@@ -63,6 +63,8 @@ class VoronoiWallpaperService : WallpaperService() {
         }
         private lateinit var renderBufferRect: Rect
         private lateinit var screenRect: Rect
+        // NEW: Buffer to hold all pixel colors for bulk operations
+        private lateinit var bufferPixels: IntArray
 
         override fun onVisibilityChanged(visible: Boolean) {
             this.visible = visible
@@ -77,10 +79,18 @@ class VoronoiWallpaperService : WallpaperService() {
             this.width = width
             this.height = height
 
-            renderBuffer = createBitmap(width / pixelStep + 1, height / pixelStep + 1)
+            // Use ceiling division to calculate the exact buffer size needed to cover the screen
+            // This is to minimize the number of buffer updates needed to cover the screen
+            // The formula (n + divisor - 1) / divisor rounds up to the nearest integer
+            val bufferWidth = (width + pixelStep - 1) / pixelStep
+            val bufferHeight = (height + pixelStep - 1) / pixelStep
+
+            renderBuffer = createBitmap(bufferWidth, bufferHeight)
             bufferCanvas = Canvas(renderBuffer)
             renderBufferRect = Rect(0, 0, renderBuffer.width, renderBuffer.height)
             screenRect = Rect(0, 0, width, height)
+            // Initialize bufferPixels when renderBuffer is created
+            bufferPixels = IntArray(renderBuffer.width * renderBuffer.height)
             initializePoints()
         }
 
@@ -101,7 +111,7 @@ class VoronoiWallpaperService : WallpaperService() {
                 val elapsedTime = now - lastTapTime
 
                 // Test the counter before it is used and Reset count if taps are too slow
-                if (tapCount < maxTaps && tapCount != 0 && elapsedTime > doubleTapThreshold) {
+                if (tapCount < maxTaps && tapCount != 0 && elapsedTime > maxTapInterval) {
                     tapCount = 0
                 }
 
@@ -151,7 +161,8 @@ class VoronoiWallpaperService : WallpaperService() {
                 canvas = holder.lockCanvas()
                 canvas?.let {
                     it.drawColor(Color.BLACK)
-                    it.drawBitmap(renderBuffer, renderBufferRect, screenRect, null)
+                    val paint = Paint().apply { isFilterBitmap = true }     // Enable bitmap filtering
+                    it.drawBitmap(renderBuffer, renderBufferRect, screenRect, paint)
 
                     // 4. Draw Voronoi points directly to main canvas
                     if (drawPoints) {
@@ -165,18 +176,30 @@ class VoronoiWallpaperService : WallpaperService() {
         }
 
         private fun drawVoronoiToBuffer() {
-            // 1. Draw Voronoi cells
-            for (bx in 0 until renderBuffer.width) {
-                val x = bx * pixelStep
-                for (by in 0 until renderBuffer.height) {
-                    val y = by * pixelStep
+            var index = 0 // Tracks position in bufferPixels
+
+            // Loop order changed to row-major (y first, then x)
+            for (by in 0 until renderBuffer.height) {
+                val y = by * pixelStep // Physical Y-coordinate
+                for (bx in 0 until renderBuffer.width) {
+                    val x = bx * pixelStep // Physical X-coordinate
                     val closest = findClosestPointIndexEuclidean(x, y)
 //                    val closest = findClosestPointIndexManhattan(x, y)
 //                    val closest = findClosestPointIndexChebyshev(x, y)
 
-                    renderBuffer[bx, by] = colors[closest]
+                    // Store color in bufferPixels instead of direct bitmap access
+                    bufferPixels[index++] = colors[closest]
                 }
             }
+
+            // Bulk update the entire bitmap
+            renderBuffer.setPixels(
+                bufferPixels,  // Source array
+                0,             // Offset in source
+                renderBuffer.width, // Source stride (same as bitmap width)
+                0, 0,         // Destination (x, y)
+                renderBuffer.width, renderBuffer.height // Width/height to write
+            )
         }
 
         private fun updatePoints() {
@@ -227,21 +250,6 @@ class VoronoiWallpaperService : WallpaperService() {
                 )
             }
 
-            colors.apply { shuffle() }
-        }
-
-        private fun generateDistinctColors1() {
-            val hueStep = 360f / numPoints
-
-            for (i in 0 until numPoints) {
-                val hue = (i * hueStep) % 360f
-                // Keep saturation and value in vibrant ranges
-                val saturation = 0.7f + 0.3f * Random.nextFloat() // 0.7-0.9
-                val value = 0.8f + 0.15f * Random.nextFloat()    // 0.8-0.95
-
-                colors[i] = Color.HSVToColor(floatArrayOf(hue, saturation, value))
-            }
-
             // Shuffle to avoid color sequence being too predictable
             colors.apply { shuffle() }
         }
@@ -256,6 +264,7 @@ class VoronoiWallpaperService : WallpaperService() {
             }
         }
 
+        @Suppress("unused")
         private fun findClosestPointIndexEuclidean(x: Int, y: Int): Int {
             var closestIndex = 0
             var minDistance = Float.MAX_VALUE
@@ -274,6 +283,7 @@ class VoronoiWallpaperService : WallpaperService() {
             return closestIndex
         }
 
+        @Suppress("unused")
         private fun findClosestPointIndexManhattan(x: Int, y: Int): Int {
             var closestIndex = 0
             var minDistance = Float.MAX_VALUE
@@ -294,6 +304,7 @@ class VoronoiWallpaperService : WallpaperService() {
             return closestIndex
         }
 
+        @Suppress("unused")
         private fun findClosestPointIndexChebyshev(x: Int, y: Int): Int {
             var closestIndex = 0
             var minDistance = Float.MAX_VALUE
