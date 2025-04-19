@@ -3,12 +3,13 @@ package com.example.voronoiwallpaper
 import android.graphics.*
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.service.wallpaper.WallpaperService
+import android.util.Log
 import android.view.MotionEvent
 import android.view.SurfaceHolder
 import kotlin.random.Random
 import androidx.core.graphics.createBitmap
-//import androidx.core.graphics.set
 import kotlin.math.max
 import kotlin.math.sqrt
 
@@ -26,10 +27,11 @@ class VoronoiWallpaperService : WallpaperService() {
         private val pointAlpha = 128 // 50% transparency
         private val drawPoints = true
 
-        private val maxTapInterval = 400L // milliseconds
         private val maxTaps = 3 // Triple-tap
-        private var tapCount = 0
-        private var lastTapTime = 0L
+        // Track tap timestamps
+        private val tapTimestamps = mutableListOf<Long>()
+        private val tapWindow = 800L  // Total allowed time for maxTaps
+
         private var isPaused = false
 
         // Voronoi properties
@@ -63,7 +65,7 @@ class VoronoiWallpaperService : WallpaperService() {
         }
         private lateinit var renderBufferRect: Rect
         private lateinit var screenRect: Rect
-        // NEW: Buffer to hold all pixel colors for bulk operations
+        // Buffer to hold all pixel colors for bulk operations
         private lateinit var bufferPixels: IntArray
 
         override fun onVisibilityChanged(visible: Boolean) {
@@ -76,8 +78,19 @@ class VoronoiWallpaperService : WallpaperService() {
         }
 
         override fun onSurfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+            Log.d("onSurfaceChanged", "onSurfaceChanged called")
+            // Check if dimensions actually changed
+            if (this.width == width && this.height == height) {
+                return // No change, skip reinitialization
+            }
+
             this.width = width
             this.height = height
+
+            // Recycle existing bitmap if it exists
+            if (::renderBuffer.isInitialized && !renderBuffer.isRecycled) {
+                renderBuffer.recycle()
+            }
 
             // Use ceiling division to calculate the exact buffer size needed to cover the screen
             // This is to minimize the number of buffer updates needed to cover the screen
@@ -85,7 +98,12 @@ class VoronoiWallpaperService : WallpaperService() {
             val bufferWidth = (width + pixelStep - 1) / pixelStep
             val bufferHeight = (height + pixelStep - 1) / pixelStep
 
-            renderBuffer = createBitmap(bufferWidth, bufferHeight)
+            // Create new bitmap with updated dimensions
+            renderBuffer = createBitmap(
+                bufferWidth,
+                bufferHeight,
+                Bitmap.Config.ARGB_8888 // Ensure 32-bit color depth
+            )
             bufferCanvas = Canvas(renderBuffer)
             renderBufferRect = Rect(0, 0, renderBuffer.width, renderBuffer.height)
             screenRect = Rect(0, 0, width, height)
@@ -107,25 +125,22 @@ class VoronoiWallpaperService : WallpaperService() {
 
         override fun onTouchEvent(event: MotionEvent?) {
             if (event?.action == MotionEvent.ACTION_UP) {
-                val now = System.currentTimeMillis()
-                val elapsedTime = now - lastTapTime
+                val now = SystemClock.elapsedRealtime() // Monotonic time//System.currentTimeMillis()
 
-                // Test the counter before it is used and Reset count if taps are too slow
-                if (tapCount < maxTaps && tapCount != 0 && elapsedTime > maxTapInterval) {
-                    tapCount = 0
-                }
+                // 1. Add current tap timestamp
+                tapTimestamps.add(now)
 
-                tapCount++
-                lastTapTime = now
+                // 2. Purge taps outside sliding window (now - window)
+                tapTimestamps.removeAll { (now - it) > tapWindow }
 
-                // Check for double-tap
-                if (tapCount == maxTaps) {
+
+                // 3. Check if taps in window meet maxTaps requirement
+                if (tapTimestamps.size >= maxTaps) {
+                    Log.d("TAP", "Triple-tap detected. Timestamps: $tapTimestamps")
                     isPaused = !isPaused
-                    tapCount = 0
+                    tapTimestamps.clear()
 
-                    if (!isPaused) {
-                        handler.post(drawRunnable) // Redraw immediately when resuming from pause
-                    }
+                    if (!isPaused) handler.post(drawRunnable)
                 }
             }
             super.onTouchEvent(event)
