@@ -1,15 +1,27 @@
 package com.example.voronoiwallpaper
 
 import android.graphics.*
-import android.os.Handler
-import android.os.Looper
-import android.os.SystemClock
+//import android.os.Handler
+//import android.os.Looper
+//import android.os.SystemClock
 import android.service.wallpaper.WallpaperService
 import android.util.Log
-import android.view.MotionEvent
+//import android.view.MotionEvent
 import android.view.SurfaceHolder
 import kotlin.random.Random
 import androidx.core.graphics.createBitmap
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlin.math.max
 import kotlin.math.sqrt
 
@@ -19,7 +31,19 @@ class VoronoiWallpaperService : WallpaperService() {
 
     inner class VoronoiEngine : Engine() {
 
-        private val handler = Handler(Looper.getMainLooper())
+//        private val handler = Handler(Looper.getMainLooper())
+
+        // Coroutine scope tied to the Engine's lifecycle
+        private val wallpaperScope = CoroutineScope(
+            Dispatchers.Default + // Background thread pool
+                    Job() // Parent job for cancellation
+        )
+
+        // Channel for passing rendered frames (double-buffered)
+        private val frameChannel = Channel<Bitmap>(capacity = 2)
+
+        // Mutex for thread-safe point updates
+        private val pointsMutex = Mutex()
 
         private var width = 0
         private var height = 0
@@ -48,12 +72,12 @@ class VoronoiWallpaperService : WallpaperService() {
         private val pointRadius = 5f
         private val frameDelay = 16L // ~60 FPS
 
-        private val drawRunnable = object : Runnable {
-            override fun run() {
-                drawFrame()
-                if (!isPaused) handler.postDelayed(this, frameDelay)
-            }
-        }
+//        private val drawRunnable = object : Runnable {
+//            override fun run() {
+//                drawFrame()
+//                if (!isPaused) handler.postDelayed(this, frameDelay)
+//            }
+//        }
 
         // Double buffering system
         private lateinit var renderBuffer: Bitmap
@@ -68,12 +92,22 @@ class VoronoiWallpaperService : WallpaperService() {
         // Buffer to hold all pixel colors for bulk operations
         private lateinit var bufferPixels: IntArray
 
+//        override fun onVisibilityChanged(visible: Boolean) {
+//            this.visible = visible
+//            if (visible) {
+//                handler.post(drawRunnable)
+//            } else {
+//                handler.removeCallbacks(drawRunnable)
+//            }
+//        }
+
         override fun onVisibilityChanged(visible: Boolean) {
             this.visible = visible
             if (visible) {
-                handler.post(drawRunnable)
+                startFrameLoop()
             } else {
-                handler.removeCallbacks(drawRunnable)
+                // Cancel ongoing frame processing
+                wallpaperScope.coroutineContext.cancelChildren()
             }
         }
 
@@ -112,39 +146,53 @@ class VoronoiWallpaperService : WallpaperService() {
             initializePoints()
         }
 
+//        override fun onSurfaceDestroyed(holder: SurfaceHolder) {
+//            super.onSurfaceDestroyed(holder)
+//            visible = false
+//            handler.removeCallbacks(drawRunnable)
+//        }
+
         override fun onSurfaceDestroyed(holder: SurfaceHolder) {
-            super.onSurfaceDestroyed(holder)
             visible = false
-            handler.removeCallbacks(drawRunnable)
+            // Cancel ongoing operations immediately
+            wallpaperScope.coroutineContext.cancelChildren()
+            super.onSurfaceDestroyed(holder)
         }
 
+
+//        override fun onDestroy() {
+//            handler.removeCallbacksAndMessages(null)
+//            super.onDestroy()
+//        }
+
         override fun onDestroy() {
-            handler.removeCallbacksAndMessages(null)
+            // Full cleanup when engine is destroyed
+            wallpaperScope.cancel()
             super.onDestroy()
         }
 
-        override fun onTouchEvent(event: MotionEvent?) {
-            if (event?.action == MotionEvent.ACTION_UP) {
-                val now = SystemClock.elapsedRealtime() // Monotonic time//System.currentTimeMillis()
-
-                // 1. Add current tap timestamp
-                tapTimestamps.add(now)
-
-                // 2. Purge taps outside sliding window (now - window)
-                tapTimestamps.removeAll { (now - it) > tapWindow }
-
-
-                // 3. Check if taps in window meet maxTaps requirement
-                if (tapTimestamps.size >= maxTaps) {
-                    Log.d("TAP", "Triple-tap detected. Timestamps: $tapTimestamps")
-                    isPaused = !isPaused
-                    tapTimestamps.clear()
-
-                    if (!isPaused) handler.post(drawRunnable)
-                }
-            }
-            super.onTouchEvent(event)
-        }
+//        override fun onTouchEvent(event: MotionEvent?) {
+//            if (event?.action == MotionEvent.ACTION_UP) {
+//                val now = SystemClock.elapsedRealtime() // Monotonic time//System.currentTimeMillis()
+//
+//                // 1. Add current tap timestamp
+//                tapTimestamps.add(now)
+//
+//                // 2. Purge taps outside sliding window (now - window)
+//                tapTimestamps.removeAll { (now - it) > tapWindow }
+//
+//
+//                // 3. Check if taps in window meet maxTaps requirement
+//                if (tapTimestamps.size >= maxTaps) {
+//                    Log.d("TAP", "Triple-tap detected. Timestamps: $tapTimestamps")
+//                    isPaused = !isPaused
+//                    tapTimestamps.clear()
+//
+//                    if (!isPaused) handler.post(drawRunnable)
+//                }
+//            }
+//            super.onTouchEvent(event)
+//        }
 
         private fun initializePoints() {
             for (i in 0 until numPoints) {
@@ -160,61 +208,140 @@ class VoronoiWallpaperService : WallpaperService() {
             generateDistinctColors()
         }
 
-        private fun drawFrame() {
-            if (!visible || isPaused) return
+//        private fun drawFrame() {
+//            if (!visible || isPaused) return
+//
+//            // 1. Update points first
+//            updatePoints()
+//
+//            // 2. Draw to buffer (low-res)
+//            drawVoronoiToBuffer()
+//
+//            // 3. Draw buffer to screen (fast)
+//            val holder = surfaceHolder
+//            var canvas: Canvas? = null
+//            try {
+//                canvas = holder.lockCanvas()
+//                canvas?.let {
+//                    it.drawColor(Color.BLACK)
+//                    val paint = Paint().apply { isFilterBitmap = true }     // Enable bitmap filtering
+//                    it.drawBitmap(renderBuffer, renderBufferRect, screenRect, paint)
+//
+//                    // 4. Draw Voronoi points directly to main canvas
+//                    if (drawPoints) {
+//                        drawPointsToCanvas(it)
+//                    }
+//                }
+//            } finally {
+//                canvas?.let { holder.unlockCanvasAndPost(it) }
+//                handler.postDelayed(::drawFrame, frameDelay)
+//            }
+//        }
 
-            // 1. Update points first
-            updatePoints()
-
-            // 2. Draw to buffer (low-res)
-            drawVoronoiToBuffer()
-
-            // 3. Draw buffer to screen (fast)
-            val holder = surfaceHolder
-            var canvas: Canvas? = null
-            try {
-                canvas = holder.lockCanvas()
-                canvas?.let {
-                    it.drawColor(Color.BLACK)
-                    val paint = Paint().apply { isFilterBitmap = true }     // Enable bitmap filtering
-                    it.drawBitmap(renderBuffer, renderBufferRect, screenRect, paint)
-
-                    // 4. Draw Voronoi points directly to main canvas
-                    if (drawPoints) {
-                        drawPointsToCanvas(it)
+        private fun startFrameLoop() {
+            wallpaperScope.launch {
+                // Launch producer coroutine
+                launch {
+                    while (isActive) {
+                        generateFrame()
+                        delay(frameDelay) // Adjusts to target ~60 FPS
                     }
                 }
-            } finally {
-                canvas?.let { holder.unlockCanvasAndPost(it) }
-                handler.postDelayed(::drawFrame, frameDelay)
+
+                // Launch consumer coroutine
+                while (isActive) {
+                    renderFrame()
+                }
             }
         }
 
-        private fun drawVoronoiToBuffer() {
-            var index = 0 // Tracks position in bufferPixels
+        // Producer: Runs on background thread
+        private suspend fun generateFrame() {
+            // 1. Thread-safe point updates
+            pointsMutex.withLock {
+                updatePoints()
+            }
 
-            // Loop order changed to row-major (y first, then x)
-            for (by in 0 until renderBuffer.height) {
-                val y = by * pixelStep // Physical Y-coordinate
-                for (bx in 0 until renderBuffer.width) {
-                    val x = bx * pixelStep // Physical X-coordinate
+            // 2. Create a snapshot of the current renderBuffer
+            val frame = renderBuffer.copy(renderBuffer.config!!, true)//Bitmap.Config.ARGB_8888, true)
+
+            // 3. Draw Voronoi to the snapshot (background thread)
+            drawVoronoiToBuffer(frame)
+
+            // 4. Send the frame to the channel (suspend if full)
+            frameChannel.send(frame)
+        }
+
+        // Consumer: Runs on main thread
+        private suspend fun renderFrame() {
+            // Wait for a frame from the channel (suspend if empty)
+            val frame = frameChannel.receive()
+
+            // Render on the main thread
+            withContext(Dispatchers.Main) {
+                if (!visible || isPaused) return@withContext
+
+                val holder = surfaceHolder
+                val canvas = holder.lockCanvas()
+                try {
+                    canvas.drawColor(Color.BLACK)
+                    canvas.drawBitmap(frame, renderBufferRect, screenRect, null)
+                    if (drawPoints) drawPointsToCanvas(canvas)
+                } finally {
+                    holder.unlockCanvasAndPost(canvas)
+                }
+            }
+        }
+
+//        private fun drawVoronoiToBuffer() {
+//            var index = 0 // Tracks position in bufferPixels
+//
+//            // Loop order changed to row-major (y first, then x)
+//            for (by in 0 until renderBuffer.height) {
+//                val y = by * pixelStep // Physical Y-coordinate
+//                for (bx in 0 until renderBuffer.width) {
+//                    val x = bx * pixelStep // Physical X-coordinate
+//                    val closest = findClosestPointIndexEuclidean(x, y)
+////                    val closest = findClosestPointIndexManhattan(x, y)
+////                    val closest = findClosestPointIndexChebyshev(x, y)
+//
+//                    // Store color in bufferPixels instead of direct bitmap access
+//                    bufferPixels[index++] = colors[closest]
+//                }
+//            }
+//
+//            // Bulk update the entire bitmap
+//            renderBuffer.setPixels(
+//                bufferPixels,  // Source array
+//                0,             // Offset in source
+//                renderBuffer.width, // Source stride (same as bitmap width)
+//                0, 0,         // Destination (x, y)
+//                renderBuffer.width, renderBuffer.height // Width/height to write
+//            )
+//        }
+
+        // Modified thread-safe version
+        private fun drawVoronoiToBuffer(target: Bitmap) {
+            // 1. Create temporary pixel array
+            val pixels = IntArray(target.width * target.height)
+            var index = 0
+
+            // 2. Calculate pixels in bulk
+            for (by in 0 until target.height) {
+                val y = by * pixelStep
+                for (bx in 0 until target.width) {
+                    val x = bx * pixelStep
                     val closest = findClosestPointIndexEuclidean(x, y)
 //                    val closest = findClosestPointIndexManhattan(x, y)
 //                    val closest = findClosestPointIndexChebyshev(x, y)
 
-                    // Store color in bufferPixels instead of direct bitmap access
-                    bufferPixels[index++] = colors[closest]
+//                    pixels[by * target.width + bx] = colors[closest]
+                    pixels[index++] = colors[closest]
                 }
             }
 
-            // Bulk update the entire bitmap
-            renderBuffer.setPixels(
-                bufferPixels,  // Source array
-                0,             // Offset in source
-                renderBuffer.width, // Source stride (same as bitmap width)
-                0, 0,         // Destination (x, y)
-                renderBuffer.width, renderBuffer.height // Width/height to write
-            )
+            // 3. Bulk write to bitmap (atomic operation)
+            target.setPixels(pixels, 0, target.width, 0, 0, target.width, target.height)
         }
 
         private fun updatePoints() {
