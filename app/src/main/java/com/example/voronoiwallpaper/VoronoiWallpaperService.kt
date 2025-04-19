@@ -1,12 +1,10 @@
 package com.example.voronoiwallpaper
 
 import android.graphics.*
-//import android.os.Handler
-//import android.os.Looper
-//import android.os.SystemClock
+import android.os.SystemClock
 import android.service.wallpaper.WallpaperService
 import android.util.Log
-//import android.view.MotionEvent
+import android.view.MotionEvent
 import android.view.SurfaceHolder
 import kotlin.random.Random
 import androidx.core.graphics.createBitmap
@@ -23,6 +21,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.sqrt
 
 class VoronoiWallpaperService : WallpaperService() {
@@ -31,16 +30,22 @@ class VoronoiWallpaperService : WallpaperService() {
 
     inner class VoronoiEngine : Engine() {
 
-//        private val handler = Handler(Looper.getMainLooper())
-
-        // Coroutine scope tied to the Engine's lifecycle
+        // Coroutine scope tied to engine lifecycle
         private val wallpaperScope = CoroutineScope(
-            Dispatchers.Default + // Background thread pool
-                    Job() // Parent job for cancellation
+    Dispatchers.Main +
+            Job().apply {
+                invokeOnCompletion {
+                    frameChannel.close()  // Clean up channel
+                }
+            }
         )
 
         // Channel for passing rendered frames (double-buffered)
         private val frameChannel = Channel<Bitmap>(capacity = 2)
+
+        // Track active jobs
+        private var producerJob: Job? = null
+        private var consumerJob: Job? = null
 
         // Mutex for thread-safe point updates
         private val pointsMutex = Mutex()
@@ -59,7 +64,7 @@ class VoronoiWallpaperService : WallpaperService() {
         private var isPaused = false
 
         // Voronoi properties
-        private val numPoints = 25
+        private val numPoints = 10
 
         private val colors = IntArray(numPoints) { 0 }
         private val points = Array(numPoints) { PointF() }
@@ -71,13 +76,6 @@ class VoronoiWallpaperService : WallpaperService() {
         private val pixelStep = 3   // Higher values improve performance but reduce quality
         private val pointRadius = 5f
         private val frameDelay = 16L // ~60 FPS
-
-//        private val drawRunnable = object : Runnable {
-//            override fun run() {
-//                drawFrame()
-//                if (!isPaused) handler.postDelayed(this, frameDelay)
-//            }
-//        }
 
         // Double buffering system
         private lateinit var renderBuffer: Bitmap
@@ -91,15 +89,6 @@ class VoronoiWallpaperService : WallpaperService() {
         private lateinit var screenRect: Rect
         // Buffer to hold all pixel colors for bulk operations
         private lateinit var bufferPixels: IntArray
-
-//        override fun onVisibilityChanged(visible: Boolean) {
-//            this.visible = visible
-//            if (visible) {
-//                handler.post(drawRunnable)
-//            } else {
-//                handler.removeCallbacks(drawRunnable)
-//            }
-//        }
 
         override fun onVisibilityChanged(visible: Boolean) {
             this.visible = visible
@@ -146,12 +135,6 @@ class VoronoiWallpaperService : WallpaperService() {
             initializePoints()
         }
 
-//        override fun onSurfaceDestroyed(holder: SurfaceHolder) {
-//            super.onSurfaceDestroyed(holder)
-//            visible = false
-//            handler.removeCallbacks(drawRunnable)
-//        }
-
         override fun onSurfaceDestroyed(holder: SurfaceHolder) {
             visible = false
             // Cancel ongoing operations immediately
@@ -159,40 +142,42 @@ class VoronoiWallpaperService : WallpaperService() {
             super.onSurfaceDestroyed(holder)
         }
 
-
-//        override fun onDestroy() {
-//            handler.removeCallbacksAndMessages(null)
-//            super.onDestroy()
-//        }
-
         override fun onDestroy() {
             // Full cleanup when engine is destroyed
             wallpaperScope.cancel()
             super.onDestroy()
         }
 
-//        override fun onTouchEvent(event: MotionEvent?) {
-//            if (event?.action == MotionEvent.ACTION_UP) {
-//                val now = SystemClock.elapsedRealtime() // Monotonic time//System.currentTimeMillis()
-//
-//                // 1. Add current tap timestamp
-//                tapTimestamps.add(now)
-//
-//                // 2. Purge taps outside sliding window (now - window)
-//                tapTimestamps.removeAll { (now - it) > tapWindow }
-//
-//
-//                // 3. Check if taps in window meet maxTaps requirement
-//                if (tapTimestamps.size >= maxTaps) {
-//                    Log.d("TAP", "Triple-tap detected. Timestamps: $tapTimestamps")
-//                    isPaused = !isPaused
-//                    tapTimestamps.clear()
-//
-//                    if (!isPaused) handler.post(drawRunnable)
-//                }
-//            }
-//            super.onTouchEvent(event)
-//        }
+        override fun onTouchEvent(event: MotionEvent?) {
+            if (event?.action == MotionEvent.ACTION_UP) {
+                val now = SystemClock.elapsedRealtime() // Monotonic time//System.currentTimeMillis()
+
+                // 1. Add current tap timestamp
+                tapTimestamps.add(now)
+
+                // 2. Purge taps outside sliding window (now - window)
+                tapTimestamps.removeAll { (now - it) > tapWindow }
+
+
+                // 3. Check if taps in window meet maxTaps requirement
+                if (tapTimestamps.size >= maxTaps) {
+                    Log.d("TAP", "Triple-tap detected. Timestamps: $tapTimestamps")
+                    isPaused = !isPaused
+                    tapTimestamps.clear()
+
+                    if (!isPaused) {
+                        // Resume with new coroutines if needed
+                        if (producerJob?.isActive != true || consumerJob?.isActive != true) {
+                            startFrameLoop()
+                        }
+                    } else {
+                        // Cancel current operations but keep scope alive
+                        wallpaperScope.coroutineContext.cancelChildren()
+                    }
+                }
+            }
+            super.onTouchEvent(event)
+        }
 
         private fun initializePoints() {
             for (i in 0 until numPoints) {
@@ -208,49 +193,44 @@ class VoronoiWallpaperService : WallpaperService() {
             generateDistinctColors()
         }
 
-//        private fun drawFrame() {
-//            if (!visible || isPaused) return
-//
-//            // 1. Update points first
-//            updatePoints()
-//
-//            // 2. Draw to buffer (low-res)
-//            drawVoronoiToBuffer()
-//
-//            // 3. Draw buffer to screen (fast)
-//            val holder = surfaceHolder
-//            var canvas: Canvas? = null
-//            try {
-//                canvas = holder.lockCanvas()
-//                canvas?.let {
-//                    it.drawColor(Color.BLACK)
-//                    val paint = Paint().apply { isFilterBitmap = true }     // Enable bitmap filtering
-//                    it.drawBitmap(renderBuffer, renderBufferRect, screenRect, paint)
-//
-//                    // 4. Draw Voronoi points directly to main canvas
-//                    if (drawPoints) {
-//                        drawPointsToCanvas(it)
-//                    }
-//                }
-//            } finally {
-//                canvas?.let { holder.unlockCanvasAndPost(it) }
-//                handler.postDelayed(::drawFrame, frameDelay)
-//            }
-//        }
-
         private fun startFrameLoop() {
-            wallpaperScope.launch {
-                // Launch producer coroutine
-                launch {
-                    while (isActive) {
+            // Cancel any existing jobs
+            wallpaperScope.coroutineContext.cancelChildren()
+
+            // Launch new producer/consumer pair
+            producerJob = wallpaperScope.launch {
+                while (isActive) {
+                    if (!isPaused) {
+                        val startTime = SystemClock.uptimeMillis()
                         generateFrame()
-                        delay(frameDelay) // Adjusts to target ~60 FPS
+                        val elapsed = SystemClock.uptimeMillis() - startTime
+
+                        // Adaptive frame pacing
+                        delay(max(0, frameDelay - elapsed))
+                    } else {
+                        delay(16) // Reduced CPU usage when paused
                     }
                 }
+            }
 
-                // Launch consumer coroutine
+            consumerJob = wallpaperScope.launch {
                 while (isActive) {
-                    renderFrame()
+                    if (!isPaused) {
+                        try {
+                            renderFrame()
+                        } catch (e: Exception) {
+                            // Handle surface errors
+                            // 1. Log the error
+                            Log.e("Voronoi", "Rendering failed: ${e.message}", e)
+
+                            // 2. Cancel further processing
+                            wallpaperScope.coroutineContext.cancelChildren()
+
+                            // 3. Reinitialize on next resume
+                            isPaused = true
+                        }
+                    }
+                    delay(1) // Keep UI responsive
                 }
             }
         }
@@ -293,55 +273,31 @@ class VoronoiWallpaperService : WallpaperService() {
             }
         }
 
-//        private fun drawVoronoiToBuffer() {
-//            var index = 0 // Tracks position in bufferPixels
-//
-//            // Loop order changed to row-major (y first, then x)
-//            for (by in 0 until renderBuffer.height) {
-//                val y = by * pixelStep // Physical Y-coordinate
-//                for (bx in 0 until renderBuffer.width) {
-//                    val x = bx * pixelStep // Physical X-coordinate
-//                    val closest = findClosestPointIndexEuclidean(x, y)
-////                    val closest = findClosestPointIndexManhattan(x, y)
-////                    val closest = findClosestPointIndexChebyshev(x, y)
-//
-//                    // Store color in bufferPixels instead of direct bitmap access
-//                    bufferPixels[index++] = colors[closest]
-//                }
-//            }
-//
-//            // Bulk update the entire bitmap
-//            renderBuffer.setPixels(
-//                bufferPixels,  // Source array
-//                0,             // Offset in source
-//                renderBuffer.width, // Source stride (same as bitmap width)
-//                0, 0,         // Destination (x, y)
-//                renderBuffer.width, renderBuffer.height // Width/height to write
-//            )
-//        }
-
         // Modified thread-safe version
         private fun drawVoronoiToBuffer(target: Bitmap) {
-            // 1. Create temporary pixel array
-            val pixels = IntArray(target.width * target.height)
             var index = 0
 
-            // 2. Calculate pixels in bulk
+            // 1. Calculate pixels in bulk
             for (by in 0 until target.height) {
                 val y = by * pixelStep
                 for (bx in 0 until target.width) {
                     val x = bx * pixelStep
-                    val closest = findClosestPointIndexEuclidean(x, y)
+//                    val closest = findClosestPointIndexEuclidean(x, y)
 //                    val closest = findClosestPointIndexManhattan(x, y)
 //                    val closest = findClosestPointIndexChebyshev(x, y)
+                    val closest = findClosestPointIndexSkyline(x, y)
 
-//                    pixels[by * target.width + bx] = colors[closest]
-                    pixels[index++] = colors[closest]
+                    bufferPixels[index++] = colors[closest]
                 }
             }
 
-            // 3. Bulk write to bitmap (atomic operation)
-            target.setPixels(pixels, 0, target.width, 0, 0, target.width, target.height)
+            // 2. Bulk write to bitmap (atomic operation)
+            target.setPixels(
+                bufferPixels,           // Source array
+                0,          // Offset in source
+                target.width,     // Source stride (same as bitmap width)
+                0, 0,        // Destination (x, y)
+                target.width, target.height)    // Width/height to write
         }
 
         private fun updatePoints() {
@@ -457,6 +413,27 @@ class VoronoiWallpaperService : WallpaperService() {
                 val dx = if (x >= point.x) x - point.x else point.x - x
                 val dy = if (y >= point.y) y - point.y else point.y - y
                 val distance = max(dx, dy)
+
+                if (distance < minDistance) {
+                    minDistance = distance
+                    closestIndex = index
+                }
+            }
+
+            return closestIndex
+        }
+
+        @Suppress("unused")
+        private fun findClosestPointIndexSkyline(x: Int, y: Int): Int {
+            var closestIndex = 0
+            var minDistance = Float.MAX_VALUE
+
+            points.forEachIndexed { index, point ->
+
+                // Use Chebyshev distance. Do not use abs() for performance
+                val dx = if (x >= point.x) x - point.x else point.x - x
+                val dy = if (y >= point.y) y - point.y else point.y - y
+                val distance = min(dx, dy)
 
                 if (distance < minDistance) {
                     minDistance = distance
