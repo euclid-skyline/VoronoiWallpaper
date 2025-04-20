@@ -1,28 +1,23 @@
 package com.example.voronoiwallpaper
 
 import android.graphics.*
+import android.graphics.Bitmap.Config
 import android.os.SystemClock
 import android.service.wallpaper.WallpaperService
 import android.util.Log
 import android.view.MotionEvent
 import android.view.SurfaceHolder
-import kotlin.random.Random
 import androidx.core.graphics.createBitmap
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.cancelChildren
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
+import kotlin.random.Random
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
+import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+
+//import com.example.voronoiwallpaper.math.*
 
 class VoronoiWallpaperService : WallpaperService() {
 
@@ -47,7 +42,7 @@ class VoronoiWallpaperService : WallpaperService() {
         private var producerJob: Job? = null
         private var consumerJob: Job? = null
 
-        // Mutex for thread-safe point updates
+        // Mutex for thread-safe point updates. Ensures only one coroutine updates points at a time.
         private val pointsMutex = Mutex()
 
         private var width = 0
@@ -64,7 +59,7 @@ class VoronoiWallpaperService : WallpaperService() {
         private var isPaused = false
 
         // Voronoi properties
-        private val numPoints = 10
+        private val numPoints = 25
 
         private val colors = IntArray(numPoints) { 0 }
         private val points = Array(numPoints) { PointF() }
@@ -72,33 +67,30 @@ class VoronoiWallpaperService : WallpaperService() {
 
         private val random = Random.Default
 
-        // Optimization
+        //
         private val pixelStep = 3   // Higher values improve performance but reduce quality
         private val pointRadius = 5f
         private val frameDelay = 16L // ~60 FPS
 
-        // Double buffering system
-        private lateinit var renderBuffer: Bitmap
-        private lateinit var bufferCanvas: Canvas
         private val pointPaint = Paint().apply {
             color = Color.argb(pointAlpha, 0, 0, 0)
             style = Paint.Style.FILL
             isAntiAlias = true
         }
-        private lateinit var renderBufferRect: Rect
+        private lateinit var frameBufferRect: Rect
         private lateinit var screenRect: Rect
         // Buffer to hold all pixel colors for bulk operations
         private lateinit var bufferPixels: IntArray
 
-        override fun onVisibilityChanged(visible: Boolean) {
-            this.visible = visible
-            if (visible) {
-                startFrameLoop()
-            } else {
-                // Cancel ongoing frame processing
-                wallpaperScope.coroutineContext.cancelChildren()
-            }
-        }
+        // Double buffering system.
+        // This is a fundamental graphics programming pattern used
+        // in games, OS compositors, and video players.
+        private lateinit var framePool: Array<Bitmap>
+        private var currentBufferIndex = 0
+        // Protects buffer pool access separately.
+        private val bufferMutex = Mutex()
+
+//        private lateinit var iCM: Array<FloatArray>
 
         override fun onSurfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
             Log.d("onSurfaceChanged", "onSurfaceChanged called")
@@ -110,9 +102,9 @@ class VoronoiWallpaperService : WallpaperService() {
             this.width = width
             this.height = height
 
-            // Recycle existing bitmap if it exists
-            if (::renderBuffer.isInitialized && !renderBuffer.isRecycled) {
-                renderBuffer.recycle()
+            // Recycle existing bitmap if it exists before
+            if (::framePool.isInitialized) {
+                framePool.forEach { it.recycle() }
             }
 
             // Use ceiling division to calculate the exact buffer size needed to cover the screen
@@ -121,18 +113,27 @@ class VoronoiWallpaperService : WallpaperService() {
             val bufferWidth = (width + pixelStep - 1) / pixelStep
             val bufferHeight = (height + pixelStep - 1) / pixelStep
 
-            // Create new bitmap with updated dimensions
-            renderBuffer = createBitmap(
-                bufferWidth,
-                bufferHeight,
-                Bitmap.Config.ARGB_8888 // Ensure 32-bit color depth
-            )
-            bufferCanvas = Canvas(renderBuffer)
-            renderBufferRect = Rect(0, 0, renderBuffer.width, renderBuffer.height)
+            framePool = Array(2) {
+                createBitmap(
+                    bufferWidth,
+                    bufferHeight,
+                    Config.ARGB_8888   // Ensure 32-bit color depth
+                )
+            }
+            frameBufferRect = Rect(0, 0, bufferWidth, bufferHeight)
             screenRect = Rect(0, 0, width, height)
-            // Initialize bufferPixels when renderBuffer is created
-            bufferPixels = IntArray(renderBuffer.width * renderBuffer.height)
+            bufferPixels = IntArray(bufferWidth * bufferHeight)
             initializePoints()
+        }
+
+        override fun onVisibilityChanged(visible: Boolean) {
+            this.visible = visible
+            if (visible) {
+                startFrameLoop()
+            } else {
+                // Cancel ongoing frame processing. Pause but keep resources alive
+                wallpaperScope.coroutineContext.cancelChildren()
+            }
         }
 
         override fun onSurfaceDestroyed(holder: SurfaceHolder) {
@@ -143,8 +144,19 @@ class VoronoiWallpaperService : WallpaperService() {
         }
 
         override fun onDestroy() {
-            // Full cleanup when engine is destroyed
+            // 1. Stop all coroutines
             wallpaperScope.cancel()
+
+            // 2. Recycle bitmaps
+            if (::framePool.isInitialized) {
+                framePool.forEach {
+                    if (!it.isRecycled) it.recycle()
+                }
+            }
+
+            // 3. Close communication channel
+            frameChannel.close()
+
             super.onDestroy()
         }
 
@@ -237,19 +249,20 @@ class VoronoiWallpaperService : WallpaperService() {
 
         // Producer: Runs on background thread
         private suspend fun generateFrame() {
-            // 1. Thread-safe point updates
+            // 1. Update point positions (thread-safe)
             pointsMutex.withLock {
-                updatePoints()
+                updatePoints() // ❗ Critical for animation
             }
 
-            // 2. Create a snapshot of the current renderBuffer
-            val frame = renderBuffer.copy(renderBuffer.config!!, true)//Bitmap.Config.ARGB_8888, true)
-
-            // 3. Draw Voronoi to the snapshot (background thread)
-            drawVoronoiToBuffer(frame)
-
-            // 4. Send the frame to the channel (suspend if full)
-            frameChannel.send(frame)
+            bufferMutex.withLock {
+                // 2. Get next buffer
+                val target = framePool[currentBufferIndex]
+                currentBufferIndex = (currentBufferIndex + 1) % framePool.size
+                //3. Draw Voronoi to the buffer (background thread)
+                drawVoronoiToBuffer(target)
+                // 4. Send the frame to the channel (suspend if full)
+                frameChannel.send(target)
+            }
         }
 
         // Consumer: Runs on main thread
@@ -265,7 +278,7 @@ class VoronoiWallpaperService : WallpaperService() {
                 val canvas = holder.lockCanvas()
                 try {
                     canvas.drawColor(Color.BLACK)
-                    canvas.drawBitmap(frame, renderBufferRect, screenRect, null)
+                    canvas.drawBitmap(frame, frameBufferRect, screenRect, null)
                     if (drawPoints) drawPointsToCanvas(canvas)
                 } finally {
                     holder.unlockCanvasAndPost(canvas)
@@ -282,10 +295,12 @@ class VoronoiWallpaperService : WallpaperService() {
                 val y = by * pixelStep
                 for (bx in 0 until target.width) {
                     val x = bx * pixelStep
-//                    val closest = findClosestPointIndexEuclidean(x, y)
+                    val closest = findClosestPointIndexEuclidean(x, y)
 //                    val closest = findClosestPointIndexManhattan(x, y)
 //                    val closest = findClosestPointIndexChebyshev(x, y)
-                    val closest = findClosestPointIndexSkyline(x, y)
+//                    val closest = findClosestPointIndexSkyline(x, y)
+                    // Careful very slow Distance calculation.
+//                    val closest = findClosestPointIndexMahalanobis(x, y)
 
                     bufferPixels[index++] = colors[closest]
                 }
@@ -316,6 +331,7 @@ class VoronoiWallpaperService : WallpaperService() {
                     }
                 }
             }
+//            iCM = inverseCovMatrix
         }
 
         private fun drawPointsToCanvas(canvas: Canvas) {
@@ -367,10 +383,13 @@ class VoronoiWallpaperService : WallpaperService() {
             var closestIndex = 0
             var minDistance = Float.MAX_VALUE
 
+            val w1 = 1f
+            val w2 = 1f
+
             points.forEachIndexed { index, point ->
                 val dx = x - point.x
                 val dy = y - point.y
-                val distance = dx * dx + dy * dy // Use square Euclidean distance to improve performance
+                val distance = w1 * dx * dx + w2 * dy * dy // Use square Euclidean distance to improve performance
 
                 if (distance < minDistance) {
                     minDistance = distance
@@ -443,5 +462,26 @@ class VoronoiWallpaperService : WallpaperService() {
 
             return closestIndex
         }
+
+//        private val inverseCovMatrix: Array<FloatArray>
+//            get() = invert2x2Matrix(computeCovarianceMatrix(points))
+//
+//        @Suppress("unused")
+//        private fun findClosestPointIndexMahalanobis(x: Int, y: Int): Int {
+//            var closestIndex = 0
+//            var minDistance = Float.MAX_VALUE
+//
+//            points.forEachIndexed { index, point ->
+//
+//                val distance = mahalanobisDistance(PointF(x.toFloat(), y.toFloat()), point, iCM)
+//
+//                if (distance < minDistance) {
+//                    minDistance = distance
+//                    closestIndex = index
+//                }
+//            }
+//
+//            return closestIndex
+//        }
     }
 }
