@@ -17,7 +17,6 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-//import com.example.voronoiwallpaper.math.*
 
 class VoronoiWallpaperService : WallpaperService() {
 
@@ -90,7 +89,11 @@ class VoronoiWallpaperService : WallpaperService() {
         // Protects buffer pool access separately.
         private val bufferMutex = Mutex()
 
-//        private lateinit var iCM: Array<FloatArray>
+        // Visual Quality when upscaling from frame buffers to screen canvas
+        private val upscalePaint = Paint().apply {
+            isFilterBitmap = true           // Enables bilinear filtering during scaling
+            isDither = true                 // Add Dither to the Paint to reduce color banding
+        }
 
         override fun onSurfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
             Log.d("onSurfaceChanged", "onSurfaceChanged called")
@@ -278,7 +281,7 @@ class VoronoiWallpaperService : WallpaperService() {
                 val canvas = holder.lockCanvas()
                 try {
                     canvas.drawColor(Color.BLACK)
-                    canvas.drawBitmap(frame, frameBufferRect, screenRect, null)
+                    canvas.drawBitmap(frame, frameBufferRect, screenRect, upscalePaint)
                     if (drawPoints) drawPointsToCanvas(canvas)
                 } finally {
                     holder.unlockCanvasAndPost(canvas)
@@ -299,8 +302,6 @@ class VoronoiWallpaperService : WallpaperService() {
 //                    val closest = findClosestPointIndexManhattan(x, y)
 //                    val closest = findClosestPointIndexChebyshev(x, y)
 //                    val closest = findClosestPointIndexSkyline(x, y)
-                    // Careful very slow Distance calculation.
-//                    val closest = findClosestPointIndexMahalanobis(x, y)
 
                     bufferPixels[index++] = colors[closest]
                 }
@@ -331,7 +332,6 @@ class VoronoiWallpaperService : WallpaperService() {
                     }
                 }
             }
-//            iCM = inverseCovMatrix
         }
 
         private fun drawPointsToCanvas(canvas: Canvas) {
@@ -462,26 +462,5 @@ class VoronoiWallpaperService : WallpaperService() {
 
             return closestIndex
         }
-
-//        private val inverseCovMatrix: Array<FloatArray>
-//            get() = invert2x2Matrix(computeCovarianceMatrix(points))
-//
-//        @Suppress("unused")
-//        private fun findClosestPointIndexMahalanobis(x: Int, y: Int): Int {
-//            var closestIndex = 0
-//            var minDistance = Float.MAX_VALUE
-//
-//            points.forEachIndexed { index, point ->
-//
-//                val distance = mahalanobisDistance(PointF(x.toFloat(), y.toFloat()), point, iCM)
-//
-//                if (distance < minDistance) {
-//                    minDistance = distance
-//                    closestIndex = index
-//                }
-//            }
-//
-//            return closestIndex
-//        }
     }
 }
