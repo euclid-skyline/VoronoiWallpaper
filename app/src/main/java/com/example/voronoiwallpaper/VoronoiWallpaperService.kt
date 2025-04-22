@@ -462,5 +462,5 @@ class VoronoiWallpaperService : WallpaperService() {
 
             return closestIndex
         }
-    }
-}
+    }   // End of VoronoiEngine inner class
+}       // End of VoronoiWallpaperService
