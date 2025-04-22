@@ -48,7 +48,7 @@ class VoronoiWallpaperService : WallpaperService() {
         private var height = 0
         private var visible = false
         private val pointAlpha = 128 // 50% transparency
-        private val drawPoints = true
+        private val drawPoints = false
 
         private val maxTaps = 3 // Triple-tap
         // Track tap timestamps
@@ -57,8 +57,8 @@ class VoronoiWallpaperService : WallpaperService() {
 
         private var isPaused = false
 
-        // Voronoi properties
-        private val numPoints = 1000
+        // Voronoi Control Points
+        private val numPoints = 500
 
         private val colors = IntArray(numPoints) { 0 }
         private val points = Array(numPoints) { PointF() }
@@ -95,6 +95,13 @@ class VoronoiWallpaperService : WallpaperService() {
             isDither = true                 // Add Dither to the Paint to reduce color banding
         }
 
+//        private val gridSize = 100 // Cell size in pixels (adjust based on point density)
+        // Optimal grid size formula for dynamic points:
+        private val gridSize get() = (sqrt(((width * height).toDouble() / numPoints)) * 0.8).toInt()
+        private lateinit var grid: Array<Array<MutableList<Int>>>
+        private val gridWidth: Int get() = (width + gridSize - 1) / gridSize
+        private val gridHeight: Int get() = (height + gridSize - 1) / gridSize
+
         override fun onSurfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
             Log.d("onSurfaceChanged", "onSurfaceChanged called")
             // Check if dimensions actually changed
@@ -123,10 +130,15 @@ class VoronoiWallpaperService : WallpaperService() {
                     Config.ARGB_8888   // Ensure 32-bit color depth
                 )
             }
+
             frameBufferRect = Rect(0, 0, bufferWidth, bufferHeight)
             screenRect = Rect(0, 0, width, height)
             bufferPixels = IntArray(bufferWidth * bufferHeight)
+
             initializePoints()
+
+            grid = Array(gridWidth) { Array(gridHeight) { mutableListOf() } }
+            updateGrid() // Initial population
         }
 
         override fun onVisibilityChanged(visible: Boolean) {
@@ -206,6 +218,19 @@ class VoronoiWallpaperService : WallpaperService() {
                 )
             }
             generateDistinctColors()
+        }
+
+        // Add this new function to update the grid
+        private fun updateGrid() {
+            // Clear previous grid data
+            grid.forEach { row -> row.forEach { it.clear() } }
+
+            // Populate grid with point indices
+            points.forEachIndexed { index, point ->
+                val cellX = (point.x / gridSize).toInt().coerceIn(0, gridWidth - 1)
+                val cellY = (point.y / gridSize).toInt().coerceIn(0, gridHeight - 1)
+                grid[cellX][cellY].add(index)
+            }
         }
 
         private fun startFrameLoop() {
@@ -298,7 +323,10 @@ class VoronoiWallpaperService : WallpaperService() {
                 val y = by * pixelStep
                 for (bx in 0 until target.width) {
                     val x = bx * pixelStep
-                    val closest = findClosestPointIndexEuclidean(x, y)
+
+                    val closest = findClosestPointIndex(x, y)
+
+//                    val closest = findClosestPointIndexEuclidean(x, y)
 //                    val closest = findClosestPointIndexManhattan(x, y)
 //                    val closest = findClosestPointIndexChebyshev(x, y)
 //                    val closest = findClosestPointIndexSkyline(x, y)
@@ -332,6 +360,7 @@ class VoronoiWallpaperService : WallpaperService() {
                     }
                 }
             }
+            updateGrid()
         }
 
         private fun drawPointsToCanvas(canvas: Canvas) {
@@ -376,6 +405,45 @@ class VoronoiWallpaperService : WallpaperService() {
                 this[i] = this[j]
                 this[j] = temp
             }
+        }
+
+        @Suppress("unused")
+        private fun findClosestPointIndex(x: Int, y: Int): Int {
+            var closestIndex = 0
+            var minDistance = Float.MAX_VALUE
+
+            // Get grid cell coordinates with bounds checking
+            val cellX = (x / gridSize).coerceIn(0, grid.size - 1)
+            val cellY = (y / gridSize).coerceIn(0, grid[0].size - 1)
+
+            // Check 3x3 neighborhood around current cell
+            for (gridDx in -1..1) {
+                for (gridDy in -1..1) {
+                    val checkX = cellX + gridDx
+                    val checkY = cellY + gridDy
+
+                    if (checkX in grid.indices && checkY in grid[0].indices) {
+                        grid[checkX][checkY].forEach { index ->
+                            val point = points[index]
+                            val dx = x - point.x  // Renamed from dx
+                            val dy = y - point.y  // Renamed from dy
+                            val distance = dx * dx + dy * dy
+
+                            // Use Manhattan distance for performance
+//                            val dx = if (x >= point.x) x - point.x else point.x - x
+//                            val dy = if (y >= point.y) y - point.y else point.y - y
+//                            val distance = max(dx, dy)
+
+                            if (distance < minDistance) {
+                                minDistance = distance
+                                closestIndex = index
+                            }
+                        }
+                    }
+                }
+            }
+
+            return closestIndex
         }
 
         @Suppress("unused")
@@ -449,7 +517,7 @@ class VoronoiWallpaperService : WallpaperService() {
 
             points.forEachIndexed { index, point ->
 
-                // Use Chebyshev distance. Do not use abs() for performance
+                // Do not use abs() for performance
                 val dx = if (x >= point.x) x - point.x else point.x - x
                 val dy = if (y >= point.y) y - point.y else point.y - y
                 val distance = min(dx, dy)
