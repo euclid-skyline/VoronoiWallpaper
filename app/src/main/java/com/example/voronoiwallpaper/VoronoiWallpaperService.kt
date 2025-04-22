@@ -58,7 +58,7 @@ class VoronoiWallpaperService : WallpaperService() {
         private var isPaused = false
 
         // Voronoi properties
-        private val numPoints = 25
+        private val numPoints = 1000
 
         private val colors = IntArray(numPoints) { 0 }
         private val points = Array(numPoints) { PointF() }
