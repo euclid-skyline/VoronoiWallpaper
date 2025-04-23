@@ -48,7 +48,7 @@ class VoronoiWallpaperService : WallpaperService() {
         private var height = 0
         private var visible = false
         private val pointAlpha = 128 // 50% transparency
-        private val drawPoints = false
+        private val drawPoints = true
 
         private val maxTaps = 3 // Triple-tap
         // Track tap timestamps
@@ -58,7 +58,7 @@ class VoronoiWallpaperService : WallpaperService() {
         private var isPaused = false
 
         // Voronoi Control Points
-        private val numPoints = 500
+        private val numPoints = 553
 
         private val colors = IntArray(numPoints) { 0 }
         private val points = Array(numPoints) { PointF() }
@@ -67,7 +67,7 @@ class VoronoiWallpaperService : WallpaperService() {
         private val random = Random.Default
 
         //
-        private val pixelStep = 3   // Higher values improve performance but reduce quality
+        private val pixelStep = 4   // Higher values improve performance but reduce quality
         private val pointRadius = 5f
         private val frameDelay = 16L // ~60 FPS
 
@@ -95,12 +95,15 @@ class VoronoiWallpaperService : WallpaperService() {
             isDither = true                 // Add Dither to the Paint to reduce color banding
         }
 
-//        private val gridSize = 100 // Cell size in pixels (adjust based on point density)
+//        // Fixed Cell size in pixels (adjust based on point density)
+//        private val gridSize = 100
         // Optimal grid size formula for dynamic points:
-        private val gridSize get() = (sqrt(((width * height).toDouble() / numPoints)) * 0.8).toInt()
+        private val gridFactor = 1.0 // Adjust to control pixel per cell
+        private var gridSize = 0 //get() = (sqrt(((width * height).toDouble() / numPoints)) * gridFactor).toInt()
         private lateinit var grid: Array<Array<MutableList<Int>>>
-        private val gridWidth: Int get() = (width + gridSize - 1) / gridSize
-        private val gridHeight: Int get() = (height + gridSize - 1) / gridSize
+        private var gridWidth: Int = 0      //   get() = (width + gridSize - 1) / gridSize
+        private var gridHeight: Int = 0     //get() = (height + gridSize - 1) / gridSize
+        private val useSpatialGrid = numPoints >= 500
 
         override fun onSurfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
             Log.d("onSurfaceChanged", "onSurfaceChanged called")
@@ -136,9 +139,13 @@ class VoronoiWallpaperService : WallpaperService() {
             bufferPixels = IntArray(bufferWidth * bufferHeight)
 
             initializePoints()
-
-            grid = Array(gridWidth) { Array(gridHeight) { mutableListOf() } }
-            updateGrid() // Initial population
+            if (useSpatialGrid) {
+                gridSize =(sqrt(((width * height).toDouble() / numPoints)) * gridFactor).toInt()
+                gridWidth = (width + gridSize - 1) / gridSize
+                gridHeight = (height + gridSize - 1) / gridSize
+                grid = Array(gridWidth) { Array(gridHeight) { mutableListOf() } }
+                updateGrid() // Initial population
+            }
         }
 
         override fun onVisibilityChanged(visible: Boolean) {
@@ -222,6 +229,7 @@ class VoronoiWallpaperService : WallpaperService() {
 
         // Add this new function to update the grid
         private fun updateGrid() {
+            if (!useSpatialGrid) return
             // Clear previous grid data
             grid.forEach { row -> row.forEach { it.clear() } }
 
@@ -412,33 +420,49 @@ class VoronoiWallpaperService : WallpaperService() {
             var closestIndex = 0
             var minDistance = Float.MAX_VALUE
 
-            // Get grid cell coordinates with bounds checking
-            val cellX = (x / gridSize).coerceIn(0, grid.size - 1)
-            val cellY = (y / gridSize).coerceIn(0, grid[0].size - 1)
+            if (useSpatialGrid) {
+                // Get grid cell coordinates with bounds checking
+                val cellX = (x / gridSize).coerceIn(0, grid.size - 1)
+                val cellY = (y / gridSize).coerceIn(0, grid[0].size - 1)
 
-            // Check 3x3 neighborhood around current cell
-            for (gridDx in -1..1) {
-                for (gridDy in -1..1) {
-                    val checkX = cellX + gridDx
-                    val checkY = cellY + gridDy
+                // Check 3x3 neighborhood around current cell
+                for (gridDx in -1..1) {
+                    for (gridDy in -1..1) {
+                        val checkX = cellX + gridDx
+                        val checkY = cellY + gridDy
 
-                    if (checkX in grid.indices && checkY in grid[0].indices) {
-                        grid[checkX][checkY].forEach { index ->
-                            val point = points[index]
-                            val dx = x - point.x  // Renamed from dx
-                            val dy = y - point.y  // Renamed from dy
-                            val distance = dx * dx + dy * dy
+                        if (checkX in grid.indices && checkY in grid[0].indices) {
+                            grid[checkX][checkY].forEach { index ->
+                                val point = points[index]
+                                val dx = x - point.x  // Renamed from dx
+                                val dy = y - point.y  // Renamed from dy
+                                val distance = dx * dx + dy * dy
 
-                            // Use Manhattan distance for performance
+                                // Use Manhattan distance for performance
 //                            val dx = if (x >= point.x) x - point.x else point.x - x
 //                            val dy = if (y >= point.y) y - point.y else point.y - y
 //                            val distance = max(dx, dy)
 
-                            if (distance < minDistance) {
-                                minDistance = distance
-                                closestIndex = index
+                                if (distance < minDistance) {
+                                    minDistance = distance
+                                    closestIndex = index
+                                }
                             }
                         }
+                    }
+                }
+            } else {
+                val w1 = 1f
+                val w2 = 1f
+
+                points.forEachIndexed { index, point ->
+                    val dx = x - point.x
+                    val dy = y - point.y
+                    val distance = w1 * dx * dx + w2 * dy * dy // Use square Euclidean distance to improve performance
+
+                    if (distance < minDistance) {
+                        minDistance = distance
+                        closestIndex = index
                     }
                 }
             }
