@@ -58,17 +58,21 @@ class VoronoiWallpaperService : WallpaperService() {
         private var isPaused = false
 
         // Voronoi Control Points
-        private val numPoints = 553
+        private val numPoints = 1053
 
         private val colors = IntArray(numPoints) { 0 }
+        private val pointColors = IntArray(numPoints) { 0 }
         private val points = Array(numPoints) { PointF() }
         private val velocities = Array(numPoints) { PointF() }
 
         private val random = Random.Default
 
         //
-        private val pixelStep = 4   // Higher values improve performance but reduce quality
-        private val pointRadius = 5f
+        private val pixelStep = 3   // Higher values improve performance but reduce quality
+        private val pointRadius = when {
+            numPoints > 100 -> 4f
+            else -> 5f
+        }
         private val frameDelay = 16L // ~60 FPS
 
         private val pointPaint = Paint().apply {
@@ -76,6 +80,13 @@ class VoronoiWallpaperService : WallpaperService() {
             style = Paint.Style.FILL
             isAntiAlias = true
         }
+
+        // Modified parameters for color contrast
+        private val DARK_THRESHOLD = 0.4f  // More colors considered "dark". More than 0.2
+        // More Natural Contrast
+        private val LIGHTEN_FACTOR = 0.6f  // 60% lightening
+        private val DARKEN_FACTOR = 0.4f   // 40% Darkening
+
         private lateinit var frameBufferRect: Rect
         private lateinit var screenRect: Rect
         // Buffer to hold all pixel colors for bulk operations
@@ -372,8 +383,8 @@ class VoronoiWallpaperService : WallpaperService() {
         }
 
         private fun drawPointsToCanvas(canvas: Canvas) {
-            // Draw points at full resolution with anti-aliasing
-            points.forEach { point ->
+            points.forEachIndexed { index, point ->
+                pointPaint.color = pointColors[index]
                 canvas.drawCircle(point.x, point.y, pointRadius, pointPaint)
             }
         }
@@ -381,11 +392,11 @@ class VoronoiWallpaperService : WallpaperService() {
         private fun generateDistinctColors() {
             val goldenAngle = 137.508f // Golden ratio-based angle for optimal distribution
             var hue = Random.nextFloat() * 360 // Random starting hue
-
             // Calculate how many variations we need for saturation and value
             val saturationBands = max(2, sqrt(numPoints.toFloat()).toInt())
             val valueBands = max(2, sqrt(numPoints.toFloat()).toInt())
 
+            // 1. First generate original colors
             repeat(numPoints) { i ->
                 // Advance hue by golden angle
                 hue = (hue + goldenAngle) % 360
@@ -401,8 +412,18 @@ class VoronoiWallpaperService : WallpaperService() {
                 )
             }
 
+            // 2. Shuffle colors BEFORE creating darker versions
             // Shuffle to avoid color sequence being too predictable
             colors.apply { shuffle() }
+
+            // 3. Generate adaptive point colors
+            colors.forEachIndexed { i, color ->
+                pointColors[i] = if (isDarkColor(color)) {
+                    lightenColor(color, LIGHTEN_FACTOR).withAlpha(pointAlpha) // Apply transparency AFTER color adjustment
+                } else {
+                    darkenColor(color, DARKEN_FACTOR).withAlpha(pointAlpha)   // Apply transparency AFTER color adjustment
+                }
+            }
         }
 
         // Extension function to shuffle IntArray
@@ -414,6 +435,42 @@ class VoronoiWallpaperService : WallpaperService() {
                 this[j] = temp
             }
         }
+
+        private fun isDarkColor(color: Int): Boolean {
+            val luminance = 0.2126f * Color.red(color)/255f +
+                    0.7152f * Color.green(color)/255f +
+                    0.0722f * Color.blue(color)/255f
+            return luminance < DARK_THRESHOLD
+        }
+
+        private fun lightenColor(color: Int, factor: Float): Int {
+            val hsv = FloatArray(3).apply {
+                Color.colorToHSV(color, this)
+                // Boost both value and saturation for visibility
+                this[1] *= 0.8f                 // Reduce saturation slightly
+                this[2] = 1f - (1f - this[2]) * (1f - factor)
+            }
+            return Color.HSVToColor(hsv)
+        }
+
+        private fun darkenColor(color: Int, factor: Float): Int {
+            val hsv = FloatArray(3).apply {
+                Color.colorToHSV(color, this)
+                this[2] *= (1f - factor)
+            }
+            return Color.HSVToColor(hsv)
+        }
+
+        // Helper to preserve original alpha
+        private fun Int.withAlpha(alpha: Int): Int {
+            return Color.argb(
+                alpha,
+                Color.red(this),
+                Color.green(this),
+                Color.blue(this)
+            )
+        }
+
 
         @Suppress("unused")
         private fun findClosestPointIndex(x: Int, y: Int): Int {
