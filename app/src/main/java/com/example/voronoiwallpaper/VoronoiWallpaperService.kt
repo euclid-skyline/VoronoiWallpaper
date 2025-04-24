@@ -58,7 +58,7 @@ class VoronoiWallpaperService : WallpaperService() {
         private var isPaused = false
 
         // Voronoi Control Points
-        private val numPoints = 1053
+        private val numPoints = 553
 
         private val colors = IntArray(numPoints) { 0 }
         private val pointColors = IntArray(numPoints) { 0 }
@@ -67,7 +67,6 @@ class VoronoiWallpaperService : WallpaperService() {
 
         private val random = Random.Default
 
-        //
         private val pixelStep = 3   // Higher values improve performance but reduce quality
         private val pointRadius = when {
             numPoints > 100 -> 4f
@@ -106,14 +105,12 @@ class VoronoiWallpaperService : WallpaperService() {
             isDither = true                 // Add Dither to the Paint to reduce color banding
         }
 
-//        // Fixed Cell size in pixels (adjust based on point density)
-//        private val gridSize = 100
         // Optimal grid size formula for dynamic points:
         private val gridFactor = 1.0 // Adjust to control pixel per cell
-        private var gridSize = 0 //get() = (sqrt(((width * height).toDouble() / numPoints)) * gridFactor).toInt()
+        private var gridSize = 0
         private lateinit var grid: Array<Array<MutableList<Int>>>
-        private var gridWidth: Int = 0      //   get() = (width + gridSize - 1) / gridSize
-        private var gridHeight: Int = 0     //get() = (height + gridSize - 1) / gridSize
+        private var gridWidth: Int = 0
+        private var gridHeight: Int = 0
         private val useSpatialGrid = numPoints >= 500
 
         override fun onSurfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
@@ -238,7 +235,7 @@ class VoronoiWallpaperService : WallpaperService() {
             generateDistinctColors()
         }
 
-        // Add this new function to update the grid
+        // Update the grid
         private fun updateGrid() {
             if (!useSpatialGrid) return
             // Clear previous grid data
@@ -476,6 +473,9 @@ class VoronoiWallpaperService : WallpaperService() {
         private fun findClosestPointIndex(x: Int, y: Int): Int {
             var closestIndex = 0
             var minDistance = Float.MAX_VALUE
+            // change w1 and w2 if you want weighted Euclidean distance
+            val w1 = 1f
+            val w2 = 1f
 
             if (useSpatialGrid) {
                 // Get grid cell coordinates with bounds checking
@@ -493,7 +493,7 @@ class VoronoiWallpaperService : WallpaperService() {
                                 val point = points[index]
                                 val dx = x - point.x  // Renamed from dx
                                 val dy = y - point.y  // Renamed from dy
-                                val distance = dx * dx + dy * dy
+                                val distance = w1 * dx * dx + w2 * dy * dy
 
                                 // Use Manhattan distance for performance
 //                            val dx = if (x >= point.x) x - point.x else point.x - x
@@ -509,13 +509,10 @@ class VoronoiWallpaperService : WallpaperService() {
                     }
                 }
             } else {
-                val w1 = 1f
-                val w2 = 1f
-
                 points.forEachIndexed { index, point ->
                     val dx = x - point.x
                     val dy = y - point.y
-                    val distance = w1 * dx * dx + w2 * dy * dy // Use square Euclidean distance to improve performance
+                    val distance = w1 * dx * dx + w2 * dy * dy// Use square Euclidean distance to improve performance
 
                     if (distance < minDistance) {
                         minDistance = distance
