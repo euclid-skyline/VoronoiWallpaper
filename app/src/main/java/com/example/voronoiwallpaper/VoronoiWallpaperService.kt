@@ -491,8 +491,8 @@ class VoronoiWallpaperService : WallpaperService() {
                         if (checkX in grid.indices && checkY in grid[0].indices) {
                             grid[checkX][checkY].forEach { index ->
                                 val point = points[index]
-                                val dx = x - point.x  // Renamed from dx
-                                val dy = y - point.y  // Renamed from dy
+                                val dx = x - point.x
+                                val dy = y - point.y
                                 val distance = w1 * dx * dx + w2 * dy * dy
 
                                 // Use Manhattan distance for performance
