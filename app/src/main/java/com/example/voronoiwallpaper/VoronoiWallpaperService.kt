@@ -468,8 +468,6 @@ class VoronoiWallpaperService : WallpaperService() {
             )
         }
 
-
-        @Suppress("unused")
         private fun findClosestPointIndex(x: Int, y: Int): Int {
             var closestIndex = 0
             var minDistance = Float.MAX_VALUE
@@ -491,14 +489,24 @@ class VoronoiWallpaperService : WallpaperService() {
                         if (checkX in grid.indices && checkY in grid[0].indices) {
                             grid[checkX][checkY].forEach { index ->
                                 val point = points[index]
-                                val dx = x - point.x
-                                val dy = y - point.y
+                                val dx = w1 * (x - point.x)
+                                val dy = w2 * (y - point.y)
                                 val distance = w1 * dx * dx + w2 * dy * dy
 
-                                // Use Manhattan distance for performance
-//                            val dx = if (x >= point.x) x - point.x else point.x - x
-//                            val dy = if (y >= point.y) y - point.y else point.y - y
-//                            val distance = max(dx, dy)
+                                // Use Manhattan distance.  Do not use abs() fun for performance
+//                                val dx = if (x >= point.x) x - point.x else point.x - x
+//                                val dy = if (y >= point.y) y - point.y else point.y - y
+//                                val distance = max(dx, dy)
+
+                                // Use Chebyshev distance. Do not use abs() fun for performance
+//                                val dx = if (x >= point.x) x - point.x else point.x - x
+//                                val dy = if (y >= point.y) y - point.y else point.y - y
+//                                val distance = max(dx, dy)
+
+                                // Use Skyline distance. Do not use abs() for performance
+//                                val dx = if (x >= point.x) x - point.x else point.x - x
+//                                val dy = if (y >= point.y) y - point.y else point.y - y
+//                                val distance = min(dx, dy)
 
                                 if (distance < minDistance) {
                                     minDistance = distance
@@ -514,95 +522,25 @@ class VoronoiWallpaperService : WallpaperService() {
                     val dy = y - point.y
                     val distance = w1 * dx * dx + w2 * dy * dy// Use square Euclidean distance to improve performance
 
+                    // Use Manhattan distance.  Do not use abs() fun for performance
+//                    val dx = if (x >= point.x) x - point.x else point.x - x
+//                    val dy = if (y >= point.y) y - point.y else point.y - y
+//                    val distance = max(dx, dy)
+
+                    // Use Chebyshev distance. Do not use abs() fun for performance
+//                    val dx = if (x >= point.x) x - point.x else point.x - x
+//                    val dy = if (y >= point.y) y - point.y else point.y - y
+//                    val distance = max(dx, dy)
+
+                    // Use Skyline distance. Do not use abs() for performance
+//                    val dx = if (x >= point.x) x - point.x else point.x - x
+//                    val dy = if (y >= point.y) y - point.y else point.y - y
+//                    val distance = min(dx, dy)
+
                     if (distance < minDistance) {
                         minDistance = distance
                         closestIndex = index
                     }
-                }
-            }
-
-            return closestIndex
-        }
-
-        @Suppress("unused")
-        private fun findClosestPointIndexEuclidean(x: Int, y: Int): Int {
-            var closestIndex = 0
-            var minDistance = Float.MAX_VALUE
-
-            val w1 = 1f
-            val w2 = 1f
-
-            points.forEachIndexed { index, point ->
-                val dx = x - point.x
-                val dy = y - point.y
-                val distance = w1 * dx * dx + w2 * dy * dy // Use square Euclidean distance to improve performance
-
-                if (distance < minDistance) {
-                    minDistance = distance
-                    closestIndex = index
-                }
-            }
-
-            return closestIndex
-        }
-
-        @Suppress("unused")
-        private fun findClosestPointIndexManhattan(x: Int, y: Int): Int {
-            var closestIndex = 0
-            var minDistance = Float.MAX_VALUE
-
-            points.forEachIndexed { index, point ->
-
-                // Use Manhattan distance. Do not use abs() for performance
-                val dx = if (x >= point.x) x - point.x else point.x - x
-                val dy = if (y >= point.y) y - point.y else point.y - y
-                val distance = dx + dy
-
-                if (distance < minDistance) {
-                    minDistance = distance
-                    closestIndex = index
-                }
-            }
-
-            return closestIndex
-        }
-
-        @Suppress("unused")
-        private fun findClosestPointIndexChebyshev(x: Int, y: Int): Int {
-            var closestIndex = 0
-            var minDistance = Float.MAX_VALUE
-
-            points.forEachIndexed { index, point ->
-
-                // Use Chebyshev distance. Do not use abs() for performance
-                val dx = if (x >= point.x) x - point.x else point.x - x
-                val dy = if (y >= point.y) y - point.y else point.y - y
-                val distance = max(dx, dy)
-
-                if (distance < minDistance) {
-                    minDistance = distance
-                    closestIndex = index
-                }
-            }
-
-            return closestIndex
-        }
-
-        @Suppress("unused")
-        private fun findClosestPointIndexSkyline(x: Int, y: Int): Int {
-            var closestIndex = 0
-            var minDistance = Float.MAX_VALUE
-
-            points.forEachIndexed { index, point ->
-
-                // Do not use abs() for performance
-                val dx = if (x >= point.x) x - point.x else point.x - x
-                val dy = if (y >= point.y) y - point.y else point.y - y
-                val distance = min(dx, dy)
-
-                if (distance < minDistance) {
-                    minDistance = distance
-                    closestIndex = index
                 }
             }
 
