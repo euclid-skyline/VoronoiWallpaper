@@ -485,7 +485,7 @@ class VoronoiWallpaperService : WallpaperService() {
                         if (checkX in grid.indices && checkY in grid[0].indices) {
                             grid[checkX][checkY].forEach { index ->
                                 val point = points[index]
-                                val distance = calculateDistance(x, y, point, DIST.CHEBYSHEV)
+                                val distance = calculateDistance(x, y, point)
 
                                 if (distance < minDistance) {
                                     minDistance = distance
