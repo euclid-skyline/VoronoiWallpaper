@@ -22,6 +22,16 @@ class VoronoiWallpaperService : WallpaperService() {
 
     override fun onCreateEngine(): Engine = VoronoiEngine()
 
+    companion object {
+        // Modified parameters for color contrast
+        private const val DARK_THRESHOLD = 0.4f  // More colors considered dark
+        // More Natural Contrast
+        private const val LIGHTEN_FACTOR = 0.6f  // 60% lightening
+        private const val DARKEN_FACTOR = 0.4f   // 40% Darkening
+    }
+
+    enum class DIST { EUCLIDEAN, MANHATTAN, CHEBYSHEV, SKYLINE }
+
     inner class VoronoiEngine : Engine() {
 
         // Coroutine scope tied to engine lifecycle
@@ -41,7 +51,8 @@ class VoronoiWallpaperService : WallpaperService() {
         private var producerJob: Job? = null
         private var consumerJob: Job? = null
 
-        // Mutex for thread-safe point updates. Ensures only one coroutine updates points at a time.
+        // Mutex for thread-safe point updates.
+        // Ensures only one coroutine updates points at a time.
         private val pointsMutex = Mutex()
 
         private var width = 0
@@ -79,12 +90,6 @@ class VoronoiWallpaperService : WallpaperService() {
             style = Paint.Style.FILL
             isAntiAlias = true
         }
-
-        // Modified parameters for color contrast
-        private val DARK_THRESHOLD = 0.4f  // More colors considered "dark". More than 0.2
-        // More Natural Contrast
-        private val LIGHTEN_FACTOR = 0.6f  // 60% lightening
-        private val DARKEN_FACTOR = 0.4f   // 40% Darkening
 
         private lateinit var frameBufferRect: Rect
         private lateinit var screenRect: Rect
@@ -335,17 +340,11 @@ class VoronoiWallpaperService : WallpaperService() {
             var index = 0
 
             // 1. Calculate pixels in bulk
-            for (by in 0 until target.height) {
-                val y = by * pixelStep
-                for (bx in 0 until target.width) {
-                    val x = bx * pixelStep
-
+            for (yIndex in 0 until target.height) {
+                val y = yIndex * pixelStep
+                for (xIndex in 0 until target.width) {
+                    val x = xIndex * pixelStep
                     val closest = findClosestPointIndex(x, y)
-
-//                    val closest = findClosestPointIndexEuclidean(x, y)
-//                    val closest = findClosestPointIndexManhattan(x, y)
-//                    val closest = findClosestPointIndexChebyshev(x, y)
-//                    val closest = findClosestPointIndexSkyline(x, y)
 
                     bufferPixels[index++] = colors[closest]
                 }
@@ -416,9 +415,9 @@ class VoronoiWallpaperService : WallpaperService() {
             // 3. Generate adaptive point colors
             colors.forEachIndexed { i, color ->
                 pointColors[i] = if (isDarkColor(color)) {
-                    lightenColor(color, LIGHTEN_FACTOR).withAlpha(pointAlpha) // Apply transparency AFTER color adjustment
+                    lightenColor(color).withAlpha(pointAlpha) // Apply transparency AFTER color adjustment
                 } else {
-                    darkenColor(color, DARKEN_FACTOR).withAlpha(pointAlpha)   // Apply transparency AFTER color adjustment
+                    darkenColor(color).withAlpha(pointAlpha)   // Apply transparency AFTER color adjustment
                 }
             }
         }
@@ -440,20 +439,20 @@ class VoronoiWallpaperService : WallpaperService() {
             return luminance < DARK_THRESHOLD
         }
 
-        private fun lightenColor(color: Int, factor: Float): Int {
+        private fun lightenColor(color: Int): Int {
             val hsv = FloatArray(3).apply {
                 Color.colorToHSV(color, this)
                 // Boost both value and saturation for visibility
                 this[1] *= 0.8f                 // Reduce saturation slightly
-                this[2] = 1f - (1f - this[2]) * (1f - factor)
+                this[2] = 1f - (1f - this[2]) * (1f - LIGHTEN_FACTOR)
             }
             return Color.HSVToColor(hsv)
         }
 
-        private fun darkenColor(color: Int, factor: Float): Int {
+        private fun darkenColor(color: Int): Int {
             val hsv = FloatArray(3).apply {
                 Color.colorToHSV(color, this)
-                this[2] *= (1f - factor)
+                this[2] *= (1f - DARKEN_FACTOR)
             }
             return Color.HSVToColor(hsv)
         }
@@ -471,9 +470,6 @@ class VoronoiWallpaperService : WallpaperService() {
         private fun findClosestPointIndex(x: Int, y: Int): Int {
             var closestIndex = 0
             var minDistance = Float.MAX_VALUE
-            // change w1 and w2 if you want weighted Euclidean distance
-            val w1 = 1f
-            val w2 = 1f
 
             if (useSpatialGrid) {
                 // Get grid cell coordinates with bounds checking
@@ -489,24 +485,7 @@ class VoronoiWallpaperService : WallpaperService() {
                         if (checkX in grid.indices && checkY in grid[0].indices) {
                             grid[checkX][checkY].forEach { index ->
                                 val point = points[index]
-                                val dx = w1 * (x - point.x)
-                                val dy = w2 * (y - point.y)
-                                val distance = w1 * dx * dx + w2 * dy * dy
-
-                                // Use Manhattan distance.  Do not use abs() fun for performance
-//                                val dx = if (x >= point.x) x - point.x else point.x - x
-//                                val dy = if (y >= point.y) y - point.y else point.y - y
-//                                val distance = max(dx, dy)
-
-                                // Use Chebyshev distance. Do not use abs() fun for performance
-//                                val dx = if (x >= point.x) x - point.x else point.x - x
-//                                val dy = if (y >= point.y) y - point.y else point.y - y
-//                                val distance = max(dx, dy)
-
-                                // Use Skyline distance. Do not use abs() for performance
-//                                val dx = if (x >= point.x) x - point.x else point.x - x
-//                                val dy = if (y >= point.y) y - point.y else point.y - y
-//                                val distance = min(dx, dy)
+                                val distance = calculateDistance(x, y, point, DIST.CHEBYSHEV)
 
                                 if (distance < minDistance) {
                                     minDistance = distance
@@ -518,24 +497,7 @@ class VoronoiWallpaperService : WallpaperService() {
                 }
             } else {
                 points.forEachIndexed { index, point ->
-                    val dx = x - point.x
-                    val dy = y - point.y
-                    val distance = w1 * dx * dx + w2 * dy * dy// Use square Euclidean distance to improve performance
-
-                    // Use Manhattan distance.  Do not use abs() fun for performance
-//                    val dx = if (x >= point.x) x - point.x else point.x - x
-//                    val dy = if (y >= point.y) y - point.y else point.y - y
-//                    val distance = max(dx, dy)
-
-                    // Use Chebyshev distance. Do not use abs() fun for performance
-//                    val dx = if (x >= point.x) x - point.x else point.x - x
-//                    val dy = if (y >= point.y) y - point.y else point.y - y
-//                    val distance = max(dx, dy)
-
-                    // Use Skyline distance. Do not use abs() for performance
-//                    val dx = if (x >= point.x) x - point.x else point.x - x
-//                    val dy = if (y >= point.y) y - point.y else point.y - y
-//                    val distance = min(dx, dy)
+                    val distance = calculateDistance(x, y, point)
 
                     if (distance < minDistance) {
                         minDistance = distance
@@ -545,6 +507,36 @@ class VoronoiWallpaperService : WallpaperService() {
             }
 
             return closestIndex
+        }
+
+        private fun calculateDistance(x: Int, y: Int, point: PointF, dist: DIST = DIST.EUCLIDEAN): Float {
+            val distance = when (dist) {
+                DIST.EUCLIDEAN -> {
+                    val dx = x - point.x
+                    val dy = y - point.y
+                    // Use square Euclidean distance to improve performance
+                    dx * dx + dy * dy
+                }
+                DIST.MANHATTAN -> {
+                    // Use Manhattan distance. Do not use abs() fun for performance
+                    val dx = if (x >= point.x) x - point.x else point.x - x
+                    val dy = if (y >= point.y) y - point.y else point.y - y
+                    max(dx, dy)
+                }
+                DIST.CHEBYSHEV -> {
+                    // Use Chebyshev distance. Do not use abs() fun for performance
+                    val dx = if (x >= point.x) x - point.x else point.x - x
+                    val dy = if (y >= point.y) y - point.y else point.y - y
+                    max(dx, dy)
+                }
+                DIST.SKYLINE -> {
+                    // Use Skyline distance. Do not use abs() for performance
+                    val dx = if (x >= point.x) x - point.x else point.x - x
+                    val dy = if (y >= point.y) y - point.y else point.y - y
+                    min(dx, dy)
+                }
+            }
+            return distance
         }
     }   // End of VoronoiEngine inner class
 }       // End of VoronoiWallpaperService
