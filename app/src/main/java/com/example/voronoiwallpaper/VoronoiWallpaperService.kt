@@ -485,7 +485,7 @@ class VoronoiWallpaperService : WallpaperService() {
                         if (checkX in grid.indices && checkY in grid[0].indices) {
                             grid[checkX][checkY].forEach { index ->
                                 val point = points[index]
-                                val distance = calculateDistance(x, y, point)
+                                val distance = calculateDistance(x, y, point, DIST.EUCLIDEAN)
 
                                 if (distance < minDistance) {
                                     minDistance = distance
@@ -497,7 +497,7 @@ class VoronoiWallpaperService : WallpaperService() {
                 }
             } else {
                 points.forEachIndexed { index, point ->
-                    val distance = calculateDistance(x, y, point)
+                    val distance = calculateDistance(x, y, point, DIST.EUCLIDEAN)
 
                     if (distance < minDistance) {
                         minDistance = distance
@@ -521,7 +521,7 @@ class VoronoiWallpaperService : WallpaperService() {
                     // Use Manhattan distance. Do not use abs() fun for performance
                     val dx = if (x >= point.x) x - point.x else point.x - x
                     val dy = if (y >= point.y) y - point.y else point.y - y
-                    max(dx, dy)
+                    dx + dy
                 }
                 DIST.CHEBYSHEV -> {
                     // Use Chebyshev distance. Do not use abs() fun for performance
