@@ -16,6 +16,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import com.example.voronoiwallpaper.utils.*
 
 
 class VoronoiWallpaperService : WallpaperService() {
@@ -50,6 +51,19 @@ class VoronoiWallpaperService : WallpaperService() {
         // Track active jobs
         private var producerJob: Job? = null
         private var consumerJob: Job? = null
+        // Metrics logger for performance monitoring
+//        private val metricsLogger: WallpaperMetrics = VoronoiMetricsLogger(
+//            scope = wallpaperScope,
+//            this@VoronoiWallpaperService,
+//            loggingInterval = 5000L
+//        )
+        private val metricsLogger by lazy {
+            VoronoiMetricsLogger(
+                wallpaperScope,
+                this@VoronoiWallpaperService,
+                5000L
+            )
+        }
 
         // Mutex for thread-safe point updates.
         // Ensures only one coroutine updates points at a time.
@@ -130,7 +144,11 @@ class VoronoiWallpaperService : WallpaperService() {
 
             // Recycle existing bitmap if it exists before
             if (::framePool.isInitialized) {
-                framePool.forEach { it.recycle() }
+                framePool.forEach {
+//                    it.recycle()
+                    metricsLogger.onBitmapReleased(it)
+                    if (!it.isRecycled) it.recycle()
+                }
             }
 
             // Use ceiling division to calculate the exact buffer size needed to cover the screen
@@ -144,8 +162,15 @@ class VoronoiWallpaperService : WallpaperService() {
                     bufferWidth,
                     bufferHeight,
                     Config.ARGB_8888   // Ensure 32-bit color depth
-                )
+                ).also {
+                    // Track bitmap allocation
+                    bitmap -> metricsLogger.onBitmapAllocated(bitmap)
+//                    metricsLogger.onBitmapAllocated(it)
+                }
             }
+
+            // Set the frame pool reference
+            metricsLogger.setFramePool(framePool)
 
             frameBufferRect = Rect(0, 0, bufferWidth, bufferHeight)
             screenRect = Rect(0, 0, width, height)
@@ -166,8 +191,7 @@ class VoronoiWallpaperService : WallpaperService() {
             if (visible) {
                 startFrameLoop()
             } else {
-                // Cancel ongoing frame processing. Pause but keep resources alive
-                wallpaperScope.coroutineContext.cancelChildren()
+                stopFrameLoop()
             }
         }
 
@@ -185,6 +209,7 @@ class VoronoiWallpaperService : WallpaperService() {
             // 2. Recycle bitmaps
             if (::framePool.isInitialized) {
                 framePool.forEach {
+                    metricsLogger.onBitmapReleased(it)
                     if (!it.isRecycled) it.recycle()
                 }
             }
@@ -192,10 +217,13 @@ class VoronoiWallpaperService : WallpaperService() {
             // 3. Close communication channel
             frameChannel.close()
 
+            metricsLogger.stopMonitoring()
             super.onDestroy()
         }
 
         override fun onTouchEvent(event: MotionEvent?) {
+            metricsLogger.onUserInteraction()
+
             if (event?.action == MotionEvent.ACTION_UP) {
                 val now = SystemClock.elapsedRealtime() // Monotonic time//System.currentTimeMillis()
 
@@ -255,9 +283,14 @@ class VoronoiWallpaperService : WallpaperService() {
         }
 
         private fun startFrameLoop() {
-            // Cancel any existing jobs
+            // Cancel any existing jobs before starting a new one.
+            // Ensure that when the visibility changes or the frame loop restarts,
+            // any old jobs are properly cleaned up before starting new ones.
+            // This is a common practice to prevent resource leaks
+            // and ensure that only the latest jobs are active.
             wallpaperScope.coroutineContext.cancelChildren()
 
+            metricsLogger.startMonitoring() // Start monitoring metrics first for this session
             // Launch new producer/consumer pair
             producerJob = wallpaperScope.launch {
                 while (isActive) {
@@ -296,8 +329,16 @@ class VoronoiWallpaperService : WallpaperService() {
             }
         }
 
+        private fun stopFrameLoop() {
+            // Cancel ongoing frame processing. Pause but keep resources alive
+            wallpaperScope.coroutineContext.cancelChildren()
+            metricsLogger.stopMonitoring()
+        }
+
         // Producer: Runs on background thread
         private suspend fun generateFrame() {
+            val startTime = SystemClock.uptimeMillis()
+
             // 1. Update point positions (thread-safe)
             pointsMutex.withLock {
                 updatePoints() // ❗ Critical for animation
@@ -312,10 +353,13 @@ class VoronoiWallpaperService : WallpaperService() {
                 // 4. Send the frame to the channel (suspend if full)
                 frameChannel.send(target)
             }
+            metricsLogger.onFrameGenerated(SystemClock.uptimeMillis() - startTime)
         }
 
         // Consumer: Runs on main thread
         private suspend fun renderFrame() {
+            val startTime = SystemClock.uptimeMillis()
+
             // Wait for a frame from the channel (suspend if empty)
             val frame = frameChannel.receive()
 
@@ -333,6 +377,7 @@ class VoronoiWallpaperService : WallpaperService() {
                     holder.unlockCanvasAndPost(canvas)
                 }
             }
+            metricsLogger.onFrameRendered(SystemClock.uptimeMillis() - startTime)
         }
 
         // Modified thread-safe version
