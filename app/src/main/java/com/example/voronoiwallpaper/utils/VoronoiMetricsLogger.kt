@@ -39,7 +39,9 @@ class VoronoiMetricsLogger(
     private var maxBitmapMemory = 0L
 
     // Battery tracking
-    private var batteryManager = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+    private val batteryManager by lazy {
+        context.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+    }
 
     private var metricsJob: Job? = null
     private var lastLogTime = 0L
@@ -187,8 +189,8 @@ class VoronoiMetricsLogger(
     private fun takeBatterySnapshot(): BatterySnapshot? {
         return try {
             BatterySnapshot(
-                currentNow = batteryManager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW) ?: 0,
-                chargeCounter = batteryManager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER) ?: 0,
+                currentNow = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW) ,
+                chargeCounter = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER),
                 timestamp = SystemClock.elapsedRealtime()
             )
         } catch (e: SecurityException) {

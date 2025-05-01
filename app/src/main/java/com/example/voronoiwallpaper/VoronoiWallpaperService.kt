@@ -52,9 +52,9 @@ class VoronoiWallpaperService : WallpaperService() {
         private var producerJob: Job? = null
         private var consumerJob: Job? = null
         // Metrics logger for performance monitoring
-//        private val metricsLogger: WallpaperMetrics = VoronoiMetricsLogger(
+//        private val metricsLogger = VoronoiMetricsLogger(
 //            scope = wallpaperScope,
-//            this@VoronoiWallpaperService,
+//            context = this@VoronoiWallpaperService,
 //            loggingInterval = 5000L
 //        )
         private val metricsLogger by lazy {
