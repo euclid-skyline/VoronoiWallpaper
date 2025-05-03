@@ -37,6 +37,17 @@
                 android:resource="@xml/wallpaper_info" />
         </service>
 
+        <activity
+            android:name=".settings.VoronoiSettingsActivity"
+            android:label="@string/voronoi_settings_title"
+            android:theme="@style/Theme.VoronoiWallpaper"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.wallpaper.WallpaperService" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
     </application>
 
 </manifest>

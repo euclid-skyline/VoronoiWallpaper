@@ -3,4 +3,14 @@
     <string name="wallpaper_name">Voronoi Diagram</string>
     <string name="wallpaper_description">Animated Voronoi diagram wallpaper</string>
     <string name="set_wallpaper">Set as Wallpaper</string>
+
+    <string name="voronoi_settings_title">Voronoi Wallpaper Settings</string>
+    <string name="num_points_label">Number of points</string>
+    <string name="num_points_hint">Recommended: 50–2000 points</string>
+    <string name="draw_points_label">Show control points</string>
+    <string name="render_quality_label">Render Quality</string>
+    <string name="render_quality_hint">Higher values improve performance but reduce quality</string>
+    <string name="spatial_grid_label">Use optimization grid</string>
+    <string name="spatial_grid_hint">Improves performance with many points</string>
+    <string name="save_settings">Save Settings</string>
 </resources>
