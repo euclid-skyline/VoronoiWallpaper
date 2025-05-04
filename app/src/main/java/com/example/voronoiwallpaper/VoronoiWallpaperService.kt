@@ -1,5 +1,6 @@
 package com.example.voronoiwallpaper
 
+import android.content.SharedPreferences
 import android.graphics.*
 import android.graphics.Bitmap.Config
 import android.os.SystemClock
@@ -8,6 +9,7 @@ import android.util.Log
 import android.view.MotionEvent
 import android.view.SurfaceHolder
 import androidx.core.graphics.createBitmap
+import androidx.preference.PreferenceManager
 import kotlin.random.Random
 import kotlin.math.max
 import kotlin.math.min
@@ -17,6 +19,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import com.example.voronoiwallpaper.utils.*
+import kotlin.properties.Delegates
 
 
 class VoronoiWallpaperService : WallpaperService() {
@@ -69,11 +72,28 @@ class VoronoiWallpaperService : WallpaperService() {
         // Ensures only one coroutine updates points at a time.
         private val pointsMutex = Mutex()
 
+        private val prefs by lazy {
+            PreferenceManager.getDefaultSharedPreferences(this@VoronoiWallpaperService)
+        }
+
+        // Make these properties mutable and initialize them from preferences
+        private var numPoints by Delegates.observable(
+            prefs.getString(getString(R.string.pref_key_num_points), "553")?.toIntOrNull() ?: 553
+        ) { _, _, newValue ->
+            // Reinitialize when points count changes
+            initializeArrays()
+            initializePoints()
+        }
+
+        private var drawPoints = prefs.getBoolean(getString(R.string.pref_key_draw_points), true)
+        private var pixelStep = prefs.getString(getString(R.string.pref_key_pixel_step), "3")?.toIntOrNull()?.coerceIn(1, 5) ?: 3
+        private var useSpatialGrid = prefs.getBoolean(getString(R.string.pref_key_use_spatial_grid), true)
+
         private var width = 0
         private var height = 0
         private var visible = false
         private val pointAlpha = 128 // 50% transparency
-        private val drawPoints = true
+//        private val drawPoints = true
 
         private val maxTaps = 3 // Triple-tap
         // Track tap timestamps
@@ -83,16 +103,28 @@ class VoronoiWallpaperService : WallpaperService() {
         private var isPaused = false
 
         // Voronoi Control Points
-        private val numPoints = 553
+//        private val numPoints = 553
 
-        private val colors = IntArray(numPoints) { 0 }
-        private val pointColors = IntArray(numPoints) { 0 }
-        private val points = Array(numPoints) { PointF() }
-        private val velocities = Array(numPoints) { PointF() }
+//        private val colors = IntArray(numPoints) { 0 }
+//        private val pointColors = IntArray(numPoints) { 0 }
+//        private val points = Array(numPoints) { PointF() }
+//        private val velocities = Array(numPoints) { PointF() }
+
+        private lateinit var colors: IntArray
+        private lateinit var pointColors: IntArray
+        private lateinit var points: Array<PointF>
+        private lateinit var velocities: Array<PointF>
+
+        fun initializeArrays() {
+            colors = IntArray(numPoints) { 0 }
+            pointColors = IntArray(numPoints) { 0 }
+            points = Array(numPoints) { PointF() }
+            velocities = Array(numPoints) { PointF() }
+        }
 
         private val random = Random.Default
 
-        private val pixelStep = 3   // Higher values improve performance but reduce quality
+//        private val pixelStep = 3   // Higher values improve performance but reduce quality
         private val pointRadius = when {
             numPoints > 100 -> 4f
             else -> 5f
@@ -130,7 +162,25 @@ class VoronoiWallpaperService : WallpaperService() {
         private lateinit var grid: Array<Array<MutableList<Int>>>
         private var gridWidth: Int = 0
         private var gridHeight: Int = 0
-        private val useSpatialGrid = numPoints >= 500
+//        private val useSpatialGrid = numPoints >= 500
+
+        private val prefListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            when (key) {
+                getString(R.string.pref_key_num_points) ->
+                    numPoints = prefs.getString(key, "553")?.toIntOrNull() ?: 553
+                getString(R.string.pref_key_draw_points) ->
+                    drawPoints = prefs.getBoolean(key, true)
+                getString(R.string.pref_key_pixel_step) ->
+                    pixelStep = prefs.getString(key, "3")?.toIntOrNull()?.coerceIn(1, 5) ?: 3
+                getString(R.string.pref_key_use_spatial_grid) ->
+                    useSpatialGrid = prefs.getBoolean(key, true)
+            }
+        }
+
+        override fun onCreate(surfaceHolder: SurfaceHolder) {
+            super.onCreate(surfaceHolder)
+            prefs.registerOnSharedPreferenceChangeListener(prefListener)
+        }
 
         override fun onSurfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
             Log.d("onSurfaceChanged", "onSurfaceChanged called")
@@ -176,12 +226,13 @@ class VoronoiWallpaperService : WallpaperService() {
             screenRect = Rect(0, 0, width, height)
             bufferPixels = IntArray(bufferWidth * bufferHeight)
 
+            initializeArrays()
             initializePoints()
             if (useSpatialGrid) {
                 gridSize =(sqrt(((width * height).toDouble() / numPoints)) * gridFactor).toInt()
                 gridWidth = (width + gridSize - 1) / gridSize
                 gridHeight = (height + gridSize - 1) / gridSize
-                grid = Array(gridWidth) { Array(gridHeight) { mutableListOf() } }
+                grid = Array(gridWidth) { Array(gridHeight) { mutableListOf(0) } }
                 updateGrid() // Initial population
             }
         }
@@ -218,6 +269,8 @@ class VoronoiWallpaperService : WallpaperService() {
             frameChannel.close()
 
             metricsLogger.stopMonitoring()
+
+            prefs.unregisterOnSharedPreferenceChangeListener(prefListener)
             super.onDestroy()
         }
 

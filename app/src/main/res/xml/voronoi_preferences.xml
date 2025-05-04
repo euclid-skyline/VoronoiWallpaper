@@ -1,0 +1,35 @@
+<PreferenceScreen xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <!-- Number of points preference -->
+    <EditTextPreference
+        app:key="@string/pref_key_num_points"
+        app:title="@string/pref_title_num_points"
+        app:dialogTitle="@string/pref_title_num_points"
+        app:summary="@string/pref_summary_num_points"
+        app:defaultValue="553"
+        app:useSimpleSummaryProvider="true" />
+
+    <!-- Draw points toggle -->
+    <SwitchPreferenceCompat
+        app:key="@string/pref_key_draw_points"
+        app:title="@string/pref_title_draw_points"
+        app:summary="@string/pref_summary_draw_points"
+        app:defaultValue="true" />
+
+    <!-- Pixel step selection -->
+    <ListPreference
+        app:key="@string/pref_key_pixel_step"
+        app:title="@string/pref_title_pixel_step"
+        app:summary="@string/pref_summary_pixel_step"
+        app:entries="@array/pixel_step_entries"
+        app:entryValues="@array/pixel_step_values"
+        app:defaultValue="3" />
+
+    <!-- Use spatial grid toggle -->
+    <SwitchPreferenceCompat
+        app:key="@string/pref_key_use_spatial_grid"
+        app:title="@string/pref_title_use_spatial_grid"
+        app:summary="@string/pref_summary_use_spatial_grid"
+        app:defaultValue="true" />
+
+</PreferenceScreen>

@@ -1,0 +1,16 @@
+<resources>
+    <string-array name="pixel_step_entries">
+        <item>Best quality (1px)</item>
+        <item>High quality (2px)</item>
+        <item>Balanced (3px)</item>
+        <item>Performance (4px)</item>
+        <item>Max performance (5px)</item>
+    </string-array>
+    <string-array name="pixel_step_values">
+        <item>1</item>
+        <item>2</item>
+        <item>3</item>
+        <item>4</item>
+        <item>5</item>
+    </string-array>
+</resources>
