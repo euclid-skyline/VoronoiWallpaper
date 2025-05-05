@@ -27,6 +27,7 @@ class VoronoiWallpaperService : WallpaperService() {
     override fun onCreateEngine(): Engine = VoronoiEngine()
 
     companion object {
+        private const val TAG = "VoronoiWallpaper"
         // Modified parameters for color contrast
         private const val DARK_THRESHOLD = 0.4f  // More colors considered dark
         // More Natural Contrast
@@ -55,11 +56,6 @@ class VoronoiWallpaperService : WallpaperService() {
         private var producerJob: Job? = null
         private var consumerJob: Job? = null
         // Metrics logger for performance monitoring
-//        private val metricsLogger = VoronoiMetricsLogger(
-//            scope = wallpaperScope,
-//            context = this@VoronoiWallpaperService,
-//            loggingInterval = 5000L
-//        )
         private val metricsLogger by lazy {
             VoronoiMetricsLogger(
                 wallpaperScope,
@@ -67,6 +63,11 @@ class VoronoiWallpaperService : WallpaperService() {
                 5000L
             )
         }
+//        private val metricsLogger = VoronoiMetricsLogger(
+//            scope = wallpaperScope,
+//            context = this@VoronoiWallpaperService,
+//            loggingInterval = 5000L
+//        )
 
         // Mutex for thread-safe point updates.
         // Ensures only one coroutine updates points at a time.
@@ -93,7 +94,6 @@ class VoronoiWallpaperService : WallpaperService() {
         private var height = 0
         private var visible = false
         private val pointAlpha = 128 // 50% transparency
-//        private val drawPoints = true
 
         private val maxTaps = 3 // Triple-tap
         // Track tap timestamps
@@ -102,29 +102,13 @@ class VoronoiWallpaperService : WallpaperService() {
 
         private var isPaused = false
 
-        // Voronoi Control Points
-//        private val numPoints = 553
-
-//        private val colors = IntArray(numPoints) { 0 }
-//        private val pointColors = IntArray(numPoints) { 0 }
-//        private val points = Array(numPoints) { PointF() }
-//        private val velocities = Array(numPoints) { PointF() }
-
         private lateinit var colors: IntArray
         private lateinit var pointColors: IntArray
         private lateinit var points: Array<PointF>
         private lateinit var velocities: Array<PointF>
 
-        fun initializeArrays() {
-            colors = IntArray(numPoints) { 0 }
-            pointColors = IntArray(numPoints) { 0 }
-            points = Array(numPoints) { PointF() }
-            velocities = Array(numPoints) { PointF() }
-        }
-
         private val random = Random.Default
 
-//        private val pixelStep = 3   // Higher values improve performance but reduce quality
         private val pointRadius = when {
             numPoints > 100 -> 4f
             else -> 5f
@@ -162,7 +146,6 @@ class VoronoiWallpaperService : WallpaperService() {
         private lateinit var grid: Array<Array<MutableList<Int>>>
         private var gridWidth: Int = 0
         private var gridHeight: Int = 0
-//        private val useSpatialGrid = numPoints >= 500
 
         private val prefListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             when (key) {
@@ -305,6 +288,23 @@ class VoronoiWallpaperService : WallpaperService() {
                 }
             }
             super.onTouchEvent(event)
+        }
+
+        private fun initializeArrays() {
+
+            if (::colors.isInitialized) {
+                Log.d(TAG, "Reinitializing arrays")
+                // Release old arrays
+                colors.toMutableList().clear()
+                pointColors.toMutableList().clear()
+                points.toMutableList().clear()
+                velocities.toMutableList().clear()
+            }
+
+            colors = IntArray(numPoints) { 0 }
+            pointColors = IntArray(numPoints) { 0 }
+            points = Array(numPoints) { PointF() }
+            velocities = Array(numPoints) { PointF() }
         }
 
         private fun initializePoints() {
