@@ -5,6 +5,8 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -25,7 +27,7 @@ import com.example.voronoiwallpaper.R
 import com.example.voronoiwallpaper.ui.theme.VoronoiWallpaperTheme
 
 class VoronoiSettingsActivity : ComponentActivity() {
-    private val viewModel: VoronoiSettingsViewModel by viewModels {
+    private val voronoiSettingsViewModel: VoronoiSettingsViewModel by viewModels {
         VoronoiViewModelFactory(applicationContext)
     }
 
@@ -39,7 +41,7 @@ class VoronoiSettingsActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background
                 ) {
                     VoronoiSettingsScreen(
-                        viewModel = viewModel,
+                        viewModel = voronoiSettingsViewModel,
                         onBackPressed = { finish() }
                     )
                 }
@@ -52,7 +54,8 @@ class VoronoiSettingsActivity : ComponentActivity() {
 @Composable
 fun VoronoiSettingsScreen(
     viewModel: VoronoiSettingsViewModel,
-    onBackPressed: () -> Unit
+    onBackPressed: () -> Unit,
+    demoMode: Boolean = false
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
@@ -78,7 +81,7 @@ fun VoronoiSettingsScreen(
             )
         }
     ) { padding ->
-        if (isLoading) {
+        if (isLoading && !demoMode) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -142,38 +145,67 @@ fun VoronoiSettingsScreen(
 
                 // Pixel Step Quality
                 Text(
-                    text = stringResource(R.string.render_quality_label),//"Render Quality",
+                    text = stringResource(R.string.render_quality_label), // "Render Quality"
                     style = MaterialTheme.typography.bodyLarge,
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
+//                val qualityOptions = listOf(1, 2, 3, 4, 5)
+                val context = LocalContext.current
+                val qualityOptions = remember {
+                    context.resources.getStringArray(R.array.quality_options)
+                }
 
-                val qualityOptions = listOf(1, 2, 3, 4, 5)
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    qualityOptions.forEach { value ->
-                        val optionText = when (value) {
-                            1 -> "1 (Best)"
-                            2 -> "2 (High)"
-                            3 -> "3 (Balanced)"
-                            4 -> "4 (Fast)"
-                            5 -> "5 (Fastest)"
-                            else -> value.toString()
+                // Single outline container for all options
+                OutlinedCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    border = BorderStroke(
+                        width = 1.dp,
+                        color = MaterialTheme.colorScheme.outline
+                    ),
+                    shape = MaterialTheme.shapes.medium
+                ) { Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        qualityOptions.forEachIndexed { index, optionText ->
+                            val value = index + 1 // Convert array index to 1-based values
+
+//                    qualityOptions.forEach { value ->
+//                        val optionText = when (value) {
+//                            1 -> "1 (Best)"
+//                            2 -> "2 (High)"
+//                            3 -> "3 (Balanced)"
+//                            4 -> "4 (Fast)"
+//                            5 -> "5 (Fastest)"
+//                            else -> value.toString()
+//                        }
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        viewModel.updateSettings(uiState.copy(pixelStep = value))
+                                    }
+                                    .padding(vertical = 1.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(
+                                    selected = uiState.pixelStep == value,
+                                    onClick = {
+                                        viewModel.updateSettings(uiState.copy(pixelStep = value))
+                                    }
+                                )
+                                Text(
+                                    text = optionText,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    modifier = Modifier.padding(start = 1.dp)
+                                )
+                            }
                         }
-
-                        FilterChip(
-                            selected = uiState.pixelStep == value,
-                            onClick = {
-                                viewModel.updateSettings(uiState.copy(pixelStep = value))
-                            },
-                            label = { Text(optionText) },
-                            modifier = Modifier.weight(1f)
-                        )
                     }
                 }
                 Text(
-                    text = stringResource(R.string.render_quality_hint),//"Higher values improve performance but reduce quality",
+                    text = stringResource(R.string.render_quality_hint), // "Higher values improve performance..."
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 4.dp, start = 16.dp)
@@ -242,7 +274,8 @@ fun VoronoiSettingsScreen_LightPreview() {
         Surface(color = MaterialTheme.colorScheme.background) {
             VoronoiSettingsScreen(
                 viewModel = viewModel,
-                onBackPressed = {}
+                onBackPressed = {},
+                demoMode = true
             )
         }
     }
@@ -263,7 +296,8 @@ fun VoronoiSettingsScreen_DarkPreview() {
 //        }
         VoronoiSettingsScreen(
             viewModel = viewModel,
-            onBackPressed = {}
+            onBackPressed = {},
+            demoMode = true
         )
     }
 }
@@ -280,10 +314,10 @@ fun VoronoiSettingsScreen_MultiStatePreview() {
     val viewModel = VoronoiSettingsViewModel(VoronoiPreferences(context)).apply {
         // Simulate different states
         updateSettings(VoronoiSettings(
-            numPoints = 150,
+            numPoints = 1153,
             drawPoints = false,
             pixelStep = 2,
-            useSpatialGrid = false
+            useSpatialGrid = true
         ))
     }
 
@@ -291,7 +325,8 @@ fun VoronoiSettingsScreen_MultiStatePreview() {
         Surface {
             VoronoiSettingsScreen(
                 viewModel = viewModel,
-                onBackPressed = {}
+                onBackPressed = {},
+                demoMode = true
             )
         }
     }

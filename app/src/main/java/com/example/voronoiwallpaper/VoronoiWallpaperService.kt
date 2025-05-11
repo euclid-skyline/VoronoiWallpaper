@@ -17,13 +17,26 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import com.example.voronoiwallpaper.utils.*
+import com.example.voronoiwallpaper.settings.*
+import kotlinx.coroutines.flow.first
 
 
 class VoronoiWallpaperService : WallpaperService() {
 
     override fun onCreateEngine(): Engine = VoronoiEngine()
+//        .also { engine ->
+//        // Post-initialization configuration
+//        CoroutineScope(Dispatchers.Main).launch {
+//            // Initial load that doesn't depend on engine being fully constructed
+//            val settings = VoronoiPreferences(applicationContext).settingsFlow.first()
+//            withContext(Dispatchers.Main) {
+//                engine.initialSettings = settings
+//            }
+//        }
+//    }
 
     companion object {
+        private const val TAG = "VoronoiWallpaper"
         // Modified parameters for color contrast
         private const val DARK_THRESHOLD = 0.4f  // More colors considered dark
         // More Natural Contrast
@@ -33,17 +46,23 @@ class VoronoiWallpaperService : WallpaperService() {
 
     enum class DIST { EUCLIDEAN, MANHATTAN, CHEBYSHEV, SKYLINE }
 
+
     inner class VoronoiEngine : Engine() {
+//        private val preferencesScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+//        private var preferencesJob: Job? = null
+
+
+        // Voronoi Control Points
+        private var numPoints: Int = VoronoiSettings.DEFAULT_SETTINGS.numPoints.also {Log.d(TAG, "numPoints: $it")}
+        private var pixelStep: Int = VoronoiSettings.DEFAULT_SETTINGS.pixelStep    // Higher values improve performance but reduce quality
+        private var drawPoints: Boolean = VoronoiSettings.DEFAULT_SETTINGS.drawPoints
+        private var useSpatialGrid: Boolean  = VoronoiSettings.DEFAULT_SETTINGS.useSpatialGrid
 
         // Coroutine scope tied to engine lifecycle
-        private val wallpaperScope = CoroutineScope(
-    Dispatchers.Main +
-            Job().apply {
-                invokeOnCompletion {
-                    frameChannel.close()  // Clean up channel
-                }
-            }
-        )
+        private val wallpaperScope = CoroutineScope(Dispatchers.Main + Job().apply {
+            invokeOnCompletion { frameChannel.close() } // Clean up channel
+        })
+
 
         // Channel for passing rendered frames (double-buffered)
         private val frameChannel = Channel<Bitmap>(capacity = 2)
@@ -57,13 +76,9 @@ class VoronoiWallpaperService : WallpaperService() {
 //            context = this@VoronoiWallpaperService,
 //            loggingInterval = 5000L
 //        )
-        private val metricsLogger by lazy {
-            VoronoiMetricsLogger(
-                wallpaperScope,
-                this@VoronoiWallpaperService,
-                5000L
-            )
-        }
+
+        private val metricsLogger by lazy { VoronoiMetricsLogger(wallpaperScope, this@VoronoiWallpaperService, 5000L) }
+        private val metrics = false
 
         // Mutex for thread-safe point updates.
         // Ensures only one coroutine updates points at a time.
@@ -73,7 +88,6 @@ class VoronoiWallpaperService : WallpaperService() {
         private var height = 0
         private var visible = false
         private val pointAlpha = 128 // 50% transparency
-        private val drawPoints = true
 
         private val maxTaps = 3 // Triple-tap
         // Track tap timestamps
@@ -82,17 +96,14 @@ class VoronoiWallpaperService : WallpaperService() {
 
         private var isPaused = false
 
-        // Voronoi Control Points
-        private val numPoints = 553
-
-        private val colors = IntArray(numPoints) { 0 }
-        private val pointColors = IntArray(numPoints) { 0 }
-        private val points = Array(numPoints) { PointF() }
-        private val velocities = Array(numPoints) { PointF() }
+        // Dynamic arrays for Voronoi points
+        private lateinit var colors: IntArray
+        private lateinit var pointColors: IntArray
+        private lateinit var points: Array<PointF>
+        private lateinit var velocities: Array<PointF>
 
         private val random = Random.Default
 
-        private val pixelStep = 3   // Higher values improve performance but reduce quality
         private val pointRadius = when {
             numPoints > 100 -> 4f
             else -> 5f
@@ -130,69 +141,76 @@ class VoronoiWallpaperService : WallpaperService() {
         private lateinit var grid: Array<Array<MutableList<Int>>>
         private var gridWidth: Int = 0
         private var gridHeight: Int = 0
-        private val useSpatialGrid = numPoints >= 500
+
+
+        override fun onCreate(surfaceHolder: SurfaceHolder?) {
+            super.onCreate(surfaceHolder)
+            Log.d(TAG, "onCreate start")
+            caller = "onCreate"
+            runBlocking {
+                loadSettings()
+//                initializeArrays()
+            }
+
+            Log.d(TAG, "onCreate end")
+        }
+
+        override fun onSurfaceCreated(holder: SurfaceHolder?) {
+            super.onSurfaceCreated(holder)
+            Log.d(TAG, "onSurfaceCreated start")
+
+
+            Log.d(TAG, "onSurfaceCreated end")
+        }
 
         override fun onSurfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-            Log.d("onSurfaceChanged", "onSurfaceChanged called")
+            Log.d("onSurfaceChanged", "onSurfaceChanged start")
             // Check if dimensions actually changed
             if (this.width == width && this.height == height) {
                 return // No change, skip reinitialization
             }
-
             this.width = width
             this.height = height
 
-            // Recycle existing bitmap if it exists before
-            if (::framePool.isInitialized) {
-                framePool.forEach {
-//                    it.recycle()
-                    metricsLogger.onBitmapReleased(it)
-                    if (!it.isRecycled) it.recycle()
-                }
-            }
-
-            // Use ceiling division to calculate the exact buffer size needed to cover the screen
-            // This is to minimize the number of buffer updates needed to cover the screen
-            // The formula (n + divisor - 1) / divisor rounds up to the nearest integer
-            val bufferWidth = (width + pixelStep - 1) / pixelStep
-            val bufferHeight = (height + pixelStep - 1) / pixelStep
-
-            framePool = Array(2) {
-                createBitmap(
-                    bufferWidth,
-                    bufferHeight,
-                    Config.ARGB_8888   // Ensure 32-bit color depth
-                ).also {
-                    // Track bitmap allocation
-                    bitmap -> metricsLogger.onBitmapAllocated(bitmap)
-//                    metricsLogger.onBitmapAllocated(it)
-                }
-            }
-
-            // Set the frame pool reference
-            metricsLogger.setFramePool(framePool)
-
-            frameBufferRect = Rect(0, 0, bufferWidth, bufferHeight)
-            screenRect = Rect(0, 0, width, height)
-            bufferPixels = IntArray(bufferWidth * bufferHeight)
-
+            initializeArrays()
+            initializeSurface()
             initializePoints()
-            if (useSpatialGrid) {
-                gridSize =(sqrt(((width * height).toDouble() / numPoints)) * gridFactor).toInt()
-                gridWidth = (width + gridSize - 1) / gridSize
-                gridHeight = (height + gridSize - 1) / gridSize
-                grid = Array(gridWidth) { Array(gridHeight) { mutableListOf() } }
-                updateGrid() // Initial population
-            }
+            if (useSpatialGrid) updateGrid()
+
+            Log.d(TAG, "visible: $visible")
+            Log.d(TAG, "onSurfaceChanged end")
+        }
+
+        override fun onSurfaceRedrawNeeded(holder: SurfaceHolder?) {
+            super.onSurfaceRedrawNeeded(holder)
+            Log.d(TAG, "onSurfaceRedrawNeeded start")
+            Log.d(TAG, "visible: $visible")
+
+
+            Log.d(TAG, "onSurfaceRedrawNeeded end")
         }
 
         override fun onVisibilityChanged(visible: Boolean) {
+            Log.d(TAG, "onVisibilityChanged start")
+
             this.visible = visible
+
             if (visible) {
+                runBlocking {
+                    caller = "onVisibilityChanged"
+                    loadSettings()
+                    initializeArrays()
+                    initializeSurface()
+                    initializePoints()
+                    if (useSpatialGrid) updateGrid()
+                }
                 startFrameLoop()
             } else {
                 stopFrameLoop()
             }
+
+            Log.d(TAG, "onVisibilityChanged visible: $visible")
+            Log.d(TAG, "onVisibilityChanged end")
         }
 
         override fun onSurfaceDestroyed(holder: SurfaceHolder) {
@@ -205,11 +223,12 @@ class VoronoiWallpaperService : WallpaperService() {
         override fun onDestroy() {
             // 1. Stop all coroutines
             wallpaperScope.cancel()
+//            preferencesScope.cancel()
 
             // 2. Recycle bitmaps
             if (::framePool.isInitialized) {
                 framePool.forEach {
-                    metricsLogger.onBitmapReleased(it)
+                    if (metrics) metricsLogger.onBitmapReleased(it)
                     if (!it.isRecycled) it.recycle()
                 }
             }
@@ -217,12 +236,12 @@ class VoronoiWallpaperService : WallpaperService() {
             // 3. Close communication channel
             frameChannel.close()
 
-            metricsLogger.stopMonitoring()
+            if (metrics) metricsLogger.stopMonitoring()
             super.onDestroy()
         }
 
         override fun onTouchEvent(event: MotionEvent?) {
-            metricsLogger.onUserInteraction()
+            if (metrics) metricsLogger.onUserInteraction()
 
             if (event?.action == MotionEvent.ACTION_UP) {
                 val now = SystemClock.elapsedRealtime() // Monotonic time//System.currentTimeMillis()
@@ -290,7 +309,7 @@ class VoronoiWallpaperService : WallpaperService() {
             // and ensure that only the latest jobs are active.
             wallpaperScope.coroutineContext.cancelChildren()
 
-            metricsLogger.startMonitoring() // Start monitoring metrics first for this session
+            if (metrics) metricsLogger.startMonitoring() // Start monitoring metrics first for this session
             // Launch new producer/consumer pair
             producerJob = wallpaperScope.launch {
                 while (isActive) {
@@ -332,7 +351,7 @@ class VoronoiWallpaperService : WallpaperService() {
         private fun stopFrameLoop() {
             // Cancel ongoing frame processing. Pause but keep resources alive
             wallpaperScope.coroutineContext.cancelChildren()
-            metricsLogger.stopMonitoring()
+            if (metrics) metricsLogger.stopMonitoring()
         }
 
         // Producer: Runs on background thread
@@ -353,7 +372,7 @@ class VoronoiWallpaperService : WallpaperService() {
                 // 4. Send the frame to the channel (suspend if full)
                 frameChannel.send(target)
             }
-            metricsLogger.onFrameGenerated(SystemClock.uptimeMillis() - startTime)
+            if (metrics) metricsLogger.onFrameGenerated(SystemClock.uptimeMillis() - startTime)
         }
 
         // Consumer: Runs on main thread
@@ -377,7 +396,7 @@ class VoronoiWallpaperService : WallpaperService() {
                     holder.unlockCanvasAndPost(canvas)
                 }
             }
-            metricsLogger.onFrameRendered(SystemClock.uptimeMillis() - startTime)
+            if (metrics) metricsLogger.onFrameRendered(SystemClock.uptimeMillis() - startTime)
         }
 
         // Modified thread-safe version
@@ -583,5 +602,119 @@ class VoronoiWallpaperService : WallpaperService() {
             }
             return distance
         }
+
+        private var settings = VoronoiSettings.DEFAULT_SETTINGS
+        private var caller = "NoOne"
+
+        private suspend fun loadSettings() {
+            Log.d(TAG, "loadSettings start from $caller")
+            try {
+                settings = VoronoiPreferences(applicationContext).settingsFlow.first()
+                applySettings()
+
+                Log.d(TAG, "Loaded Settings:\n $settings")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to load settings", e)
+
+
+                settings = VoronoiSettings.DEFAULT_SETTINGS
+                applySettings() // Reset to default
+                Log.d(TAG, "Resetting to default settings\n  $settings")
+            }
+            Log.d(TAG, "loadSettings end from $caller")
+        }
+
+        private fun initializeArrays() {
+            Log.d(TAG, "initializeArrays: Initialized arrays start")
+
+            if (!isNumPointsChange) return
+
+            colors = IntArray(numPoints)
+            pointColors = IntArray(numPoints)
+            points = Array(numPoints) { PointF(0f, 0f) }
+            velocities = Array(numPoints) { PointF(0f, 0f) }
+
+            Log.d(TAG, "initializeArrays: Initialized arrays end")
+        }
+
+        private var isPixelStepChange = true
+        private var isNumPointsChange = true
+        private var isFirstTime = true
+
+        private fun applySettings() {
+            Log.d(TAG, "updateSettings: Updated settings start")
+
+            isNumPointsChange = settings.numPoints != numPoints || isFirstTime
+            isPixelStepChange = settings.pixelStep != pixelStep || isFirstTime
+
+            isFirstTime = false
+
+            numPoints = settings.numPoints
+            drawPoints = settings.drawPoints
+            pixelStep = settings.pixelStep
+            useSpatialGrid = settings.useSpatialGrid
+
+            Log.d(TAG, "updateSettings: Update settings end")
+        }
+
+
+
+        private fun initializeSurface() {
+
+            if (!isPixelStepChange) return
+
+            // Recycle existing bitmap if it exists before
+            if (::framePool.isInitialized) {
+                framePool.forEach {
+//                    it.recycle()
+                    if (metrics) metricsLogger.onBitmapReleased(it)
+                    if (!it.isRecycled) it.recycle()
+                }
+            }
+
+            // Use ceiling division to calculate the exact buffer size needed to cover the screen
+            // This is to minimize the number of buffer updates needed to cover the screen
+            // The formula (n + divisor - 1) / divisor rounds up to the nearest integer
+            val bufferWidth = (width + pixelStep - 1) / pixelStep
+            val bufferHeight = (height + pixelStep - 1) / pixelStep
+
+            framePool = Array(2) {
+                createBitmap(
+                    bufferWidth,
+                    bufferHeight,
+                    Config.ARGB_8888   // Ensure 32-bit color depth
+                ).also {
+                    // Track bitmap allocation
+                        bitmap ->
+                    if (metrics) metricsLogger.onBitmapAllocated(bitmap)
+//                    metricsLogger.onBitmapAllocated(it)
+                }
+            }
+
+            // Set the frame pool reference
+            if (metrics) metricsLogger.setFramePool(framePool)
+
+            if (::frameBufferRect.isInitialized) frameBufferRect.set(0, 0, bufferWidth, bufferHeight)
+            else frameBufferRect = Rect(0, 0, bufferWidth, bufferHeight)
+            screenRect = Rect(0, 0, width, height)
+            if (::bufferPixels.isInitialized) bufferPixels.toMutableList().clear()
+            else bufferPixels = IntArray(bufferWidth * bufferHeight)
+
+
+//            initializeArrays()
+//            initializePoints()
+            if (useSpatialGrid) {
+                gridSize =
+                    (sqrt(((width * height).toDouble() / numPoints)) * gridFactor).toInt()
+                gridWidth = (width + gridSize - 1) / gridSize
+                gridHeight = (height + gridSize - 1) / gridSize
+                if (::grid.isInitialized) {
+                    grid.forEach { row -> row.forEach { it.clear() }}
+                }
+                grid = Array(gridWidth) { Array(gridHeight) { mutableListOf() } }
+//                updateGrid() // Initial population
+            }
+        }
+
     }   // End of VoronoiEngine inner class
 }       // End of VoronoiWallpaperService

@@ -89,6 +89,7 @@ class VoronoiMetricsLogger(
 
     override fun stopMonitoring() {
         metricsJob?.cancel()
+        metricsJob = null
     }
 
     override fun onFrameGenerated(durationMs: Long) {

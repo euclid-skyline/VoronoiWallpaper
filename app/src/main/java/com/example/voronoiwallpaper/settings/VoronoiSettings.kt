@@ -11,20 +11,11 @@ data class VoronoiSettings(
 ) {
     companion object {
         // Default settings
-        val DEFAULT_SETTINGS = VoronoiSettings(
-            numPoints = 553,
-            drawPoints = true,
-            pixelStep = 3,
-            useSpatialGrid = true
-        )
+        val DEFAULT_SETTINGS = VoronoiSettings()
     }
 }
 
 object PreferenceKeys {
-//    const val NUM_POINTS = "num_points"
-//    const val DRAW_POINTS = "draw_points"
-//    const val PIXEL_STEP = "pixel_step"
-//    const val USE_SPATIAL_GRID = "use_spatial_grid"
     val NUM_POINTS = intPreferencesKey("num_points")
     val DRAW_POINTS = booleanPreferencesKey("draw_points")
     val PIXEL_STEP = intPreferencesKey("pixel_step")

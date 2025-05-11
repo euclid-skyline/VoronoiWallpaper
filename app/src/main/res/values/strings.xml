@@ -13,4 +13,12 @@
     <string name="spatial_grid_label">Use optimization grid</string>
     <string name="spatial_grid_hint">Improves performance with many points</string>
     <string name="save_settings">Save Settings</string>
+
+    <string-array name="quality_options">
+        <item>1 (Best Quality)</item>
+        <item>2 (High Quality)</item>
+        <item>3 (Balanced)</item>
+        <item>4 (Fast)</item>
+        <item>5 (Fastest)</item>
+    </string-array>
 </resources>

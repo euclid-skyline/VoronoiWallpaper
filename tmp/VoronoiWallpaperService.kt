@@ -144,7 +144,7 @@ class VoronoiWallpaperService : WallpaperService() {
                     withContext(Dispatchers.Main) {
                         applySettings(settings)
                         initializeArrays()
-//                        initializePoints()
+                        initializePoints()
                         Log.d(TAG, "Initialized with $numPoints points")
                     }
                 } catch (e: Exception) {
@@ -162,6 +162,12 @@ class VoronoiWallpaperService : WallpaperService() {
         }
 
         private fun initializeArrays() {
+            if (::colors.isInitialized) {
+                colors.toMutableList().clear()
+                pointColors.toMutableList().clear()
+                points.toMutableList().clear()
+                velocities.toMutableList().clear()
+            }
 
             colors = IntArray(numPoints) { 0 }
             pointColors = IntArray(numPoints) { 0 }
@@ -175,10 +181,13 @@ class VoronoiWallpaperService : WallpaperService() {
 
             wallpaperScope.launch {
                 if (width > 0 && height > 0) {
-                    initializeSurfaceResources()
-                    if (::points.isInitialized.not()) {
+
+                    if (!::points.isInitialized) {
+                        loadPreferences()
+                        initializeArrays()
                         initializePoints()
                     }
+                    initializeSurfaceResources()
                     if (visible) startFrameLoop()
                 }
             }
@@ -200,8 +209,8 @@ class VoronoiWallpaperService : WallpaperService() {
                 pointsMutex.withLock {
                     this@VoronoiEngine.width = width
                     this@VoronoiEngine.height = height
-                    initializeSurfaceResources()
-                    if (::points.isInitialized) initializePoints()
+//                    initializeSurfaceResources()
+//                    if (::points.isInitialized) initializePoints()
                 }
             }
         }
@@ -325,13 +334,6 @@ class VoronoiWallpaperService : WallpaperService() {
         }
 
         private fun initializePoints() {
-//            if (!::points.isInitialized) {
-//                colors = IntArray(numPoints) { 0 }
-//                pointColors = IntArray(numPoints) { 0 }
-//                points = Array(numPoints) { PointF() }
-//                velocities = Array(numPoints) { PointF() }
-//            }
-
             for (i in 0 until numPoints) {
                 points[i].set(
                     random.nextFloat() * width,
