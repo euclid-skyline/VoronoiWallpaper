@@ -2,12 +2,15 @@ package com.example.voronoiwallpaper
 
 import android.graphics.*
 import android.graphics.Bitmap.Config
+import android.graphics.Bitmap.createBitmap
 import android.os.SystemClock
 import android.service.wallpaper.WallpaperService
 import android.util.Log
 import android.view.MotionEvent
 import android.view.SurfaceHolder
-import androidx.core.graphics.createBitmap
+//import androidx.datastore.core.IOException
+//import androidx.datastore.preferences.core.emptyPreferences
+//import androidx.core.graphics.createBitmap
 import kotlin.random.Random
 import kotlin.math.max
 import kotlin.math.min
@@ -18,22 +21,13 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import com.example.voronoiwallpaper.utils.*
 import com.example.voronoiwallpaper.settings.*
+//import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 
 
 class VoronoiWallpaperService : WallpaperService() {
 
     override fun onCreateEngine(): Engine = VoronoiEngine()
-//        .also { engine ->
-//        // Post-initialization configuration
-//        CoroutineScope(Dispatchers.Main).launch {
-//            // Initial load that doesn't depend on engine being fully constructed
-//            val settings = VoronoiPreferences(applicationContext).settingsFlow.first()
-//            withContext(Dispatchers.Main) {
-//                engine.initialSettings = settings
-//            }
-//        }
-//    }
 
     companion object {
         private const val TAG = "VoronoiWallpaper"
@@ -46,14 +40,11 @@ class VoronoiWallpaperService : WallpaperService() {
 
     enum class DIST { EUCLIDEAN, MANHATTAN, CHEBYSHEV, SKYLINE }
 
-
     inner class VoronoiEngine : Engine() {
-//        private val preferencesScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-//        private var preferencesJob: Job? = null
-
 
         // Voronoi Control Points
-        private var numPoints: Int = VoronoiSettings.DEFAULT_SETTINGS.numPoints.also {Log.d(TAG, "numPoints: $it")}
+        private var numPoints: Int = VoronoiSettings.DEFAULT_SETTINGS.numPoints
+                                        .also {Log.d(TAG, "numPoints: $it")}
         private var pixelStep: Int = VoronoiSettings.DEFAULT_SETTINGS.pixelStep    // Higher values improve performance but reduce quality
         private var drawPoints: Boolean = VoronoiSettings.DEFAULT_SETTINGS.drawPoints
         private var useSpatialGrid: Boolean  = VoronoiSettings.DEFAULT_SETTINGS.useSpatialGrid
@@ -62,7 +53,9 @@ class VoronoiWallpaperService : WallpaperService() {
         private val wallpaperScope = CoroutineScope(Dispatchers.Main + Job().apply {
             invokeOnCompletion { frameChannel.close() } // Clean up channel
         })
-
+//        private val wallpaperScope = CoroutineScope(Dispatchers.Main.immediate + SupervisorJob())
+        // Coroutine scope tied to engine lifecycle
+        private val preferencesScope = CoroutineScope(Dispatchers.Main.immediate + SupervisorJob())
 
         // Channel for passing rendered frames (double-buffered)
         private val frameChannel = Channel<Bitmap>(capacity = 2)
@@ -70,6 +63,7 @@ class VoronoiWallpaperService : WallpaperService() {
         // Track active jobs
         private var producerJob: Job? = null
         private var consumerJob: Job? = null
+        private var preferencesJob: Job? = null
         // Metrics logger for performance monitoring
 //        private val metricsLogger = VoronoiMetricsLogger(
 //            scope = wallpaperScope,
@@ -143,14 +137,24 @@ class VoronoiWallpaperService : WallpaperService() {
         private var gridHeight: Int = 0
 
 
+        private var isSetupComplete = false
+
         override fun onCreate(surfaceHolder: SurfaceHolder?) {
             super.onCreate(surfaceHolder)
             Log.d(TAG, "onCreate start")
             caller = "onCreate"
-            runBlocking {
-                loadSettings()
-//                initializeArrays()
-            }
+
+//            preferencesJob = preferencesScope.launch {
+//                Log.d(TAG, "Settings flow started inside onCreate")
+//                VoronoiPreferences(applicationContext).settingsFlow.collect {
+//
+//                    Log.d(TAG, "Settings changed:\n $it")
+//                    settings = it
+//                    applySettings()
+////                    isSetupComplete = true
+//
+//                }
+//            }
 
             Log.d(TAG, "onCreate end")
         }
@@ -158,24 +162,22 @@ class VoronoiWallpaperService : WallpaperService() {
         override fun onSurfaceCreated(holder: SurfaceHolder?) {
             super.onSurfaceCreated(holder)
             Log.d(TAG, "onSurfaceCreated start")
-
+            caller = "onSurfaceCreated"
 
             Log.d(TAG, "onSurfaceCreated end")
         }
 
+        private var dimensionsChanged = false
         override fun onSurfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
             Log.d("onSurfaceChanged", "onSurfaceChanged start")
+            caller = "onSurfaceChanged"
             // Check if dimensions actually changed
-            if (this.width == width && this.height == height) {
+            dimensionsChanged = width != this.width || height != this.height
+            if (!dimensionsChanged) {
                 return // No change, skip reinitialization
             }
             this.width = width
             this.height = height
-
-            initializeArrays()
-            initializeSurface()
-            initializePoints()
-            if (useSpatialGrid) updateGrid()
 
             Log.d(TAG, "visible: $visible")
             Log.d(TAG, "onSurfaceChanged end")
@@ -183,27 +185,71 @@ class VoronoiWallpaperService : WallpaperService() {
 
         override fun onSurfaceRedrawNeeded(holder: SurfaceHolder?) {
             super.onSurfaceRedrawNeeded(holder)
+            caller = "onSurfaceRedrawNeeded"
             Log.d(TAG, "onSurfaceRedrawNeeded start")
             Log.d(TAG, "visible: $visible")
 
+            stopFrameLoop()
+            preferencesJob = preferencesScope.launch {
+                Log.d(TAG, "Settings loadSettings() started inside $caller")
+
+                // ... (after dimensions are set)
+                if (dimensionsChanged || !isSetupComplete) {
+                    Log.d(TAG, "Performing engine setup...")
+                    try {
+                        // 1. Load and apply settings
+                        loadSettings() // This is suspend, and it calls applySettings() internally at the end
+
+                        // 2. Initialize arrays (uses 'numPoints' from applied settings)
+                        initializeArrays()
+
+                        // 3. Initialize surface-dependent things (uses 'pixelStep' and dimensions)
+                        //    This function should also be improved to be idempotent.
+                        initializeSurface() // Make sure this uses current width, height, pixelStep
+
+                        // 4. Initialize point positions and generate colors
+                        //    (uses 'numPoints', 'width', 'height', and initialized arrays)
+                        initializePoints()
+
+                        // 5. Update spatial grid if used
+                        if (useSpatialGrid) {
+                            updateGrid() // Make sure this uses current points and grid dimensions
+                        }
+
+//                        isSetupComplete = true
+                        Log.d(TAG, "Engine setup complete. isSetupComplete: $isSetupComplete")
+
+                        if (visible) {
+                            startFrameLoop()
+                        } else {
+                            stopFrameLoop()
+                        }
+                        // ...
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error during engine setup: ${e.message}", e)
+                        isSetupComplete = false
+                        stopFrameLoop()
+                    }
+                } else {
+                    // ... (handle case where setup is already complete)
+                    if (visible) {
+                        startFrameLoop()
+                    } else {
+                        stopFrameLoop()
+                    }
+                }
+            }
 
             Log.d(TAG, "onSurfaceRedrawNeeded end")
         }
 
         override fun onVisibilityChanged(visible: Boolean) {
             Log.d(TAG, "onVisibilityChanged start")
-
+            caller = "onVisibilityChanged"
             this.visible = visible
 
-            if (visible) {
-                runBlocking {
-                    caller = "onVisibilityChanged"
-                    loadSettings()
-                    initializeArrays()
-                    initializeSurface()
-                    initializePoints()
-                    if (useSpatialGrid) updateGrid()
-                }
+            Log.d(TAG, "onVisibilityChanged isSetupComplete: $isSetupComplete")
+            if (visible && isSetupComplete) {
                 startFrameLoop()
             } else {
                 stopFrameLoop()
@@ -215,14 +261,17 @@ class VoronoiWallpaperService : WallpaperService() {
 
         override fun onSurfaceDestroyed(holder: SurfaceHolder) {
             visible = false
+            caller = "onSurfaceDestroyed"
             // Cancel ongoing operations immediately
             wallpaperScope.coroutineContext.cancelChildren()
             super.onSurfaceDestroyed(holder)
         }
 
         override fun onDestroy() {
+            caller = "onDestroy"
             // 1. Stop all coroutines
             wallpaperScope.cancel()
+            preferencesJob?.cancel()
 //            preferencesScope.cancel()
 
             // 2. Recycle bitmaps
@@ -302,6 +351,8 @@ class VoronoiWallpaperService : WallpaperService() {
         }
 
         private fun startFrameLoop() {
+            Log.d(TAG, "startFrameLoop start called from $caller")
+
             // Cancel any existing jobs before starting a new one.
             // Ensure that when the visibility changes or the frame loop restarts,
             // any old jobs are properly cleaned up before starting new ones.
@@ -606,21 +657,30 @@ class VoronoiWallpaperService : WallpaperService() {
         private var settings = VoronoiSettings.DEFAULT_SETTINGS
         private var caller = "NoOne"
 
+
+
         private suspend fun loadSettings() {
             Log.d(TAG, "loadSettings start from $caller")
+            isSetupComplete = false
             try {
-                settings = VoronoiPreferences(applicationContext).settingsFlow.first()
-                applySettings()
+                // VoronoiPreferences should be instantiated with the correct context
+                val context = applicationContext // Or this@VoronoiWallpaperService, etc.
 
-                Log.d(TAG, "Loaded Settings:\n $settings")
+                // settingsFlow from VoronoiPreferences now correctly emits VoronoiSettings
+                // and internally handles mapping and IO error recovery to defaults.
+                settings = VoronoiPreferences(context).settingsFlow.first()
+
+                Log.d(TAG, "Loaded Settings from VoronoiPreferences:\n $settings")
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to load settings", e)
-
-
+                // This catch block now handles exceptions from .first() or if settingsFlow
+                // itself rethrows an exception (e.g., a non-IOException from the initial catch)
+                Log.e(TAG, "Failed to load settings via VoronoiPreferences.settingsFlow.first()", e)
                 settings = VoronoiSettings.DEFAULT_SETTINGS
-                applySettings() // Reset to default
-                Log.d(TAG, "Resetting to default settings\n  $settings")
+                Log.d(TAG, "Resetting to default settings due to error:\n $settings")
             }
+
+            applySettings()
+            isSetupComplete = true
             Log.d(TAG, "loadSettings end from $caller")
         }
 
@@ -708,13 +768,27 @@ class VoronoiWallpaperService : WallpaperService() {
                     (sqrt(((width * height).toDouble() / numPoints)) * gridFactor).toInt()
                 gridWidth = (width + gridSize - 1) / gridSize
                 gridHeight = (height + gridSize - 1) / gridSize
-                if (::grid.isInitialized) {
+                if (::grid.isInitialized && grid.isNotEmpty()) {
                     grid.forEach { row -> row.forEach { it.clear() }}
+                    grid = emptyArray()
                 }
                 grid = Array(gridWidth) { Array(gridHeight) { mutableListOf() } }
 //                updateGrid() // Initial population
+            } else if (::grid.isInitialized && grid.isNotEmpty()) {
+                // If spatial grid was previously used but now is not, clear/nullify the grid
+                // Or just let it be garbage collected when useSpatialGrid is false.
+                // Clearing might be good practice if it holds significant memory.
+                // grid = emptyArray() // Or similar to release resources
+                grid.forEach { row -> row.forEach { it.clear() } }
+                grid = emptyArray()
             }
         }
+
+//        private fun checkReinitNeeded(newSettings: VoronoiSettings): Boolean {
+//            return numPoints != newSettings.numPoints ||
+//                    pixelStep != newSettings.pixelStep ||
+//                    useSpatialGrid != newSettings.useSpatialGrid
+//        }
 
     }   // End of VoronoiEngine inner class
 }       // End of VoronoiWallpaperService
