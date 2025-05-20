@@ -126,8 +126,9 @@ class VoronoiWallpaperService : WallpaperService() {
         private var gridWidth: Int = 0
         private var gridHeight: Int = 0
 
-        private var dimensionsChanged = false
+
         private var isSetupComplete = false
+        private var screenSizeChanged = false
         private var isPixelStepChange = true
         private var isNumPointsChange = true
         private var isFirstTime = true
@@ -153,12 +154,14 @@ class VoronoiWallpaperService : WallpaperService() {
             caller = "onSurfaceChanged"
             Log.d(TAG, "$caller start")
             // Check if dimensions actually changed
-            dimensionsChanged = width != this.width || height != this.height
+            screenSizeChanged = width != this.width || height != this.height
 
-            if (!dimensionsChanged) return // No change, skip reinitialization
+            if (!screenSizeChanged) return // No change, skip reinitialization
 
             this.width = width
             this.height = height
+
+            isSetupComplete = false
 
             Log.d(TAG, "$caller visible: $visible")
             Log.d(TAG, "$caller end")
@@ -170,14 +173,17 @@ class VoronoiWallpaperService : WallpaperService() {
             Log.d(TAG, "$caller start")
             Log.d(TAG, "$caller visible: $visible")
 
+            screenSizeChanged = holder?.surfaceFrame?.width() != width || holder.surfaceFrame.height() != height
+
             stopFrameLoop()
             preferencesJob = preferencesScope.launch {
                 Log.d(TAG, "Settings loadSettings() started inside $caller")
 
                 // ... (after dimensions are set)
-                if (dimensionsChanged || !isSetupComplete) {
+                if (/*screenSizeChanged ||*/ !isSetupComplete) {
                     Log.d(TAG, "Performing engine setup...")
                     try {
+
                         // 1. Load and apply settings
                         loadSettings() // This is suspend, and it calls applySettings() internally at the end
 
@@ -197,7 +203,7 @@ class VoronoiWallpaperService : WallpaperService() {
                             updateGrid() // Make sure this uses current points and grid dimensions
                         }
 
-//                        isSetupComplete = true
+    //                        isSetupComplete = true
                         Log.d(TAG, "Engine setup complete. isSetupComplete: $isSetupComplete")
 
                         if (visible) {
@@ -205,6 +211,7 @@ class VoronoiWallpaperService : WallpaperService() {
                         } else {
                             stopFrameLoop()
                         }
+
                         // ...
                     } catch (e: Exception) {
                         Log.e(TAG, "Error during engine setup: ${e.message}", e)
@@ -703,16 +710,20 @@ class VoronoiWallpaperService : WallpaperService() {
 
         private fun initializeSurface() {
 
-            if (!isPixelStepChange) return
+            Log.d(TAG, "initializeSurface: Initialized surface start")
+            Log.d(TAG, "initializeSurface: isPixelStepChange is $isPixelStepChange")
+            Log.d(TAG, "initializeSurface: isNumPointsChange is $isNumPointsChange")
+            Log.d(TAG, "initializeSurface: screenSizeChanged is $screenSizeChanged")
+
+            if (!isPixelStepChange && !isNumPointsChange && !screenSizeChanged) return
 
             // Recycle existing bitmap if it exists before
-            if (::framePool.isInitialized) {
-                framePool.forEach {
-//                    it.recycle()
-                    if (metrics) metricsLogger.onBitmapReleased(it)
-                    if (!it.isRecycled) it.recycle()
-                }
-            }
+//            if (::framePool.isInitialized) {
+//                framePool.forEach {
+//                    if (metrics) metricsLogger.onBitmapReleased(it)
+//                    if (!it.isRecycled) it.recycle()
+//                }
+//            }
 
             // Use ceiling division to calculate the exact buffer size needed to cover the screen
             // This is to minimize the number of buffer updates needed to cover the screen
@@ -750,20 +761,21 @@ class VoronoiWallpaperService : WallpaperService() {
                     (sqrt(((width * height).toDouble() / numPoints)) * gridFactor).toInt()
                 gridWidth = (width + gridSize - 1) / gridSize
                 gridHeight = (height + gridSize - 1) / gridSize
-                if (::grid.isInitialized && grid.isNotEmpty()) {
-                    grid.forEach { row -> row.forEach { it.clear() }}
-                    grid = emptyArray()
-                }
+//                if (::grid.isInitialized && grid.isNotEmpty()) {
+//                    grid.forEach { row -> row.forEach { it.clear() }}
+//                    grid = emptyArray()
+//                }
                 grid = Array(gridWidth) { Array(gridHeight) { mutableListOf() } }
 //                updateGrid() // Initial population
-            } else if (::grid.isInitialized && grid.isNotEmpty()) {
-                // If spatial grid was previously used but now is not, clear/nullify the grid
-                // Or just let it be garbage collected when useSpatialGrid is false.
-                // Clearing might be good practice if it holds significant memory.
-                // grid = emptyArray() // Or similar to release resources
-                grid.forEach { row -> row.forEach { it.clear() } }
-                grid = emptyArray()
             }
+//            else if (::grid.isInitialized && grid.isNotEmpty()) {
+//                // If spatial grid was previously used but now is not, clear/nullify the grid
+//                // Or just let it be garbage collected when useSpatialGrid is false.
+//                // Clearing might be good practice if it holds significant memory.
+//                // grid = emptyArray() // Or similar to release resources
+//                grid.forEach { row -> row.forEach { it.clear() } }
+//                grid = emptyArray()
+//            }
         }
 
 //        private fun checkReinitNeeded(): Boolean {
