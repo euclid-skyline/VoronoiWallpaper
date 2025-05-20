@@ -26,13 +26,7 @@ class VoronoiPreferences(context: Context) {
                 throw exception // Rethrow other exceptions
             }
         }
-        .map { // prefs ->
-//            VoronoiSettings(
-//                numPoints = prefs[PreferenceKeys.NUM_POINTS] ?: VoronoiSettings.DEFAULT_SETTINGS.numPoints,
-//                drawPoints = prefs[PreferenceKeys.DRAW_POINTS] ?: VoronoiSettings.DEFAULT_SETTINGS.drawPoints,
-//                pixelStep = prefs[PreferenceKeys.PIXEL_STEP] ?: VoronoiSettings.DEFAULT_SETTINGS.pixelStep,
-//                useSpatialGrid = prefs[PreferenceKeys.USE_SPATIAL_GRID] ?: VoronoiSettings.DEFAULT_SETTINGS.useSpatialGrid
-//            )
+        .map {
             VoronoiSettings(
                 numPoints = it[PreferenceKeys.NUM_POINTS] ?: VoronoiSettings.DEFAULT_SETTINGS.numPoints,
                 drawPoints = it[PreferenceKeys.DRAW_POINTS] ?: VoronoiSettings.DEFAULT_SETTINGS.drawPoints,
@@ -42,14 +36,7 @@ class VoronoiPreferences(context: Context) {
         }//.flowOn(Dispatchers.IO)
 
     suspend fun updateSettings(settings: VoronoiSettings) {
-        dataStore.edit { // prefs ->
-//            prefs[PreferenceKeys.NUM_POINTS] = settings.numPoints.coerceIn(2, 2000)
-//            prefs[PreferenceKeys.DRAW_POINTS] = settings.drawPoints
-//            prefs[PreferenceKeys.PIXEL_STEP] = settings.pixelStep.coerceIn(1, 5)
-//            prefs[PreferenceKeys.USE_SPATIAL_GRID] = settings.useSpatialGrid
-//
-//            Log.d("Settings", "Saved: $prefs")
-
+        dataStore.edit {
             it[PreferenceKeys.NUM_POINTS] = settings.numPoints.coerceIn(2, 3000)
             it[PreferenceKeys.DRAW_POINTS] = settings.drawPoints
             it[PreferenceKeys.PIXEL_STEP] = settings.pixelStep.coerceIn(1, 5)

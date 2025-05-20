@@ -115,7 +115,7 @@ fun VoronoiSettingsScreen(
                     shape = MaterialTheme.shapes.medium
                 )
                 Text(
-                    text = stringResource(R.string.num_points_hint),//"Recommended: 2-2000 points",
+                    text = stringResource(R.string.num_points_hint),//"Recommended: 2-3000 points",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 4.dp, start = 16.dp)
@@ -244,7 +244,7 @@ fun VoronoiSettingsScreen(
                     onClick = {
                         val points = numPointsText.toIntOrNull() ?: uiState.numPoints
                         viewModel.updateSettings(
-                            uiState.copy(numPoints = points.coerceIn(2, 2000))
+                            uiState.copy(numPoints = points.coerceIn(2, 3000))
                         )
                         onBackPressed()
                     },

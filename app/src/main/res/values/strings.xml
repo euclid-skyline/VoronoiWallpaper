@@ -6,7 +6,7 @@
 
     <string name="voronoi_settings_title">Voronoi Wallpaper Settings</string>
     <string name="num_points_label">Number of points</string>
-    <string name="num_points_hint">Recommended: 50–2000 points</string>
+    <string name="num_points_hint">Recommended: 2–3000 points</string>
     <string name="draw_points_label">Show control points</string>
     <string name="render_quality_label">Render Quality</string>
     <string name="render_quality_hint">Higher values improve performance but reduce quality</string>
