@@ -34,7 +34,7 @@ class VoronoiWallpaperService : WallpaperService() {
         private const val DARKEN_FACTOR = 0.4f   // 40% Darkening
     }
 
-    enum class DIST { EUCLIDEAN, MANHATTAN, CHEBYSHEV, SKYLINE }
+    enum class DistanceMetric { EUCLIDEAN, MANHATTAN, CHEBYSHEV, SKYLINE }
 
     inner class VoronoiEngine : Engine() {
 
@@ -587,7 +587,7 @@ class VoronoiWallpaperService : WallpaperService() {
                         if (checkX in grid.indices && checkY in grid[0].indices) {
                             grid[checkX][checkY].forEach { index ->
                                 val point = points[index]
-                                val distance = calculateDistance(x, y, point, DIST.EUCLIDEAN)
+                                val distance = calculateDistance(x, y, point, DistanceMetric.EUCLIDEAN)
 
                                 if (distance < minDistance) {
                                     minDistance = distance
@@ -599,7 +599,7 @@ class VoronoiWallpaperService : WallpaperService() {
                 }
             } else {
                 points.forEachIndexed { index, point ->
-                    val distance = calculateDistance(x, y, point, DIST.EUCLIDEAN)
+                    val distance = calculateDistance(x, y, point, DistanceMetric.EUCLIDEAN)
 
                     if (distance < minDistance) {
                         minDistance = distance
@@ -611,27 +611,27 @@ class VoronoiWallpaperService : WallpaperService() {
             return closestIndex
         }
 
-        private fun calculateDistance(x: Int, y: Int, point: PointF, dist: DIST = DIST.EUCLIDEAN): Float {
-            val distance = when (dist) {
-                DIST.EUCLIDEAN -> {
+        private fun calculateDistance(x: Int, y: Int, point: PointF, distanceMetric: DistanceMetric = DistanceMetric.EUCLIDEAN): Float {
+            val distance = when (distanceMetric) {
+                DistanceMetric.EUCLIDEAN -> {
                     val dx = x - point.x
                     val dy = y - point.y
                     // Use square Euclidean distance to improve performance
                     dx * dx + dy * dy
                 }
-                DIST.MANHATTAN -> {
+                DistanceMetric.MANHATTAN -> {
                     // Use Manhattan distance. Do not use abs() fun for performance
                     val dx = if (x >= point.x) x - point.x else point.x - x
                     val dy = if (y >= point.y) y - point.y else point.y - y
                     dx + dy
                 }
-                DIST.CHEBYSHEV -> {
+                DistanceMetric.CHEBYSHEV -> {
                     // Use Chebyshev distance. Do not use abs() fun for performance
                     val dx = if (x >= point.x) x - point.x else point.x - x
                     val dy = if (y >= point.y) y - point.y else point.y - y
                     max(dx, dy)
                 }
-                DIST.SKYLINE -> {
+                DistanceMetric.SKYLINE -> {
                     // Use Skyline distance. Do not use abs() for performance
                     val dx = if (x >= point.x) x - point.x else point.x - x
                     val dy = if (y >= point.y) y - point.y else point.y - y
