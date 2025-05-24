@@ -132,7 +132,9 @@ class VoronoiWallpaperService : WallpaperService() {
         private var isPixelStepChange = true
         private var isNumPointsChange = true
         private var isFirstTime = true
+        private var caller = "No One"
 
+        private var settings = VoronoiSettings.DEFAULT_SETTINGS
 
         override fun onCreate(surfaceHolder: SurfaceHolder?) {
             super.onCreate(surfaceHolder)
@@ -175,11 +177,16 @@ class VoronoiWallpaperService : WallpaperService() {
 
             screenSizeChanged = holder?.surfaceFrame?.width() != width || holder.surfaceFrame.height() != height
 
-            stopFrameLoop()
+            setupEngine()
+
+            Log.d(TAG, "$caller end")
+        }
+
+        private fun setupEngine() {
+            Log.d(TAG, "setupEngine start called from $caller")
+            preferencesJob?.cancel()
             preferencesJob = preferencesScope.launch {
-
-
-                Log.d(TAG, "Performing engine setup...")
+//                Log.d(TAG, "Performing engine setup...")
                 try {
                     isSetupComplete = false
                     Log.d(TAG, "Settings loadSettings() started inside $caller")
@@ -203,23 +210,20 @@ class VoronoiWallpaperService : WallpaperService() {
                     }
 
                     isSetupComplete = true
-//                    Log.d(TAG, "Engine setup complete. isSetupComplete: $isSetupComplete")
-
-                    if (visible) {
-                        startFrameLoop()
-                    } else {
-                        stopFrameLoop()
-                    }
-
-                    // ...
                 } catch (e: Exception) {
                     Log.e(TAG, "Error during engine setup: ${e.message}", e)
                     isSetupComplete = false
+                }
+
+                Log.d(TAG, "Engine setup complete.\n isSetupComplete: $isSetupComplete && visible: $visible")
+
+                if (visible && isSetupComplete) {
+                    startFrameLoop()
+                } else {
                     stopFrameLoop()
                 }
             }
-
-            Log.d(TAG, "$caller end")
+            Log.d(TAG, "setupEngine end called from $caller")
         }
 
         override fun onVisibilityChanged(visible: Boolean) {
@@ -230,9 +234,9 @@ class VoronoiWallpaperService : WallpaperService() {
             this.visible = visible
 
             if (visible && isSetupComplete) {
-                startFrameLoop()
+//                startFrameLoop()
+                setupEngine()
             } else {
-//                isSetupComplete = false
                 stopFrameLoop()
             }
 
@@ -254,7 +258,7 @@ class VoronoiWallpaperService : WallpaperService() {
             // 1. Stop all coroutines
             wallpaperScope.cancel()
             preferencesJob?.cancel()
-//            preferencesScope.cancel()
+            preferencesScope.cancel()
 
             // 2. Recycle bitmaps
             if (::framePool.isInitialized) {
@@ -340,7 +344,9 @@ class VoronoiWallpaperService : WallpaperService() {
             // any old jobs are properly cleaned up before starting new ones.
             // This is a common practice to prevent resource leaks
             // and ensure that only the latest jobs are active.
-            wallpaperScope.coroutineContext.cancelChildren()
+//            wallpaperScope.coroutineContext.cancelChildren()
+            producerJob?.cancel()
+            consumerJob?.cancel()
 
             if (metrics) metricsLogger.startMonitoring() // Start monitoring metrics first for this session
             // Launch new producer/consumer pair
@@ -637,11 +643,6 @@ class VoronoiWallpaperService : WallpaperService() {
             }
             return distance
         }
-
-        private var settings = VoronoiSettings.DEFAULT_SETTINGS
-        private var caller = "NoOne"
-
-
 
         private suspend fun loadSettings() {
             Log.d(TAG, "loadSettings start from $caller")
