@@ -50,7 +50,7 @@ class VoronoiWallpaperService : WallpaperService() {
         })
 //        private val wallpaperScope = CoroutineScope(Dispatchers.Main.immediate + SupervisorJob())
         // Coroutine scope tied to engine lifecycle
-        private val preferencesScope = CoroutineScope(Dispatchers.Main.immediate + SupervisorJob())
+//        private val preferencesScope = CoroutineScope(Dispatchers.Main.immediate + SupervisorJob())
 
         // Channel for passing rendered frames (double-buffered)
         private val frameChannel = Channel<Bitmap>(capacity = 2)
@@ -177,16 +177,24 @@ class VoronoiWallpaperService : WallpaperService() {
 
             screenSizeChanged = holder?.surfaceFrame?.width() != width || holder.surfaceFrame.height() != height
 
-            setupEngine()
-
+            preferencesJob?.cancel()
+//            preferencesJob = preferencesScope.launch {
+            preferencesJob = wallpaperScope.launch {
+                setupEngine()
+                if (visible && isSetupComplete) {
+                    startFrameLoop()
+                } else {
+                    stopFrameLoop()
+                }
+            }
             Log.d(TAG, "$caller end")
         }
 
-        private fun setupEngine() {
+        private suspend fun setupEngine() {
             Log.d(TAG, "setupEngine start called from $caller")
-            preferencesJob?.cancel()
-            preferencesJob = preferencesScope.launch {
-//                Log.d(TAG, "Performing engine setup...")
+//            preferencesJob?.cancel()
+//            preferencesJob = preferencesScope.launch {
+                Log.d(TAG, "Performing engine setup...")
                 try {
                     isSetupComplete = false
                     Log.d(TAG, "Settings loadSettings() started inside $caller")
@@ -215,14 +223,14 @@ class VoronoiWallpaperService : WallpaperService() {
                     isSetupComplete = false
                 }
 
-                Log.d(TAG, "Engine setup complete.\n isSetupComplete: $isSetupComplete && visible: $visible")
-
-                if (visible && isSetupComplete) {
-                    startFrameLoop()
-                } else {
-                    stopFrameLoop()
-                }
-            }
+//                Log.d(TAG, "Engine setup complete.\n isSetupComplete: $isSetupComplete && visible: $visible")
+//
+//                if (visible && isSetupComplete) {
+//                    startFrameLoop()
+//                } else {
+//                    stopFrameLoop()
+//                }
+//            }
             Log.d(TAG, "setupEngine end called from $caller")
         }
 
@@ -233,11 +241,22 @@ class VoronoiWallpaperService : WallpaperService() {
 
             this.visible = visible
 
-            if (visible && isSetupComplete) {
+//            if (visible && isSetupComplete) {
 //                startFrameLoop()
+////                setupEngine()
+//            } else {
+//                stopFrameLoop()
+//            }
+
+            preferencesJob?.cancel()
+//            preferencesJob = preferencesScope.launch {
+            preferencesJob = wallpaperScope.launch {
                 setupEngine()
-            } else {
-                stopFrameLoop()
+                if (visible && isSetupComplete) {
+                    startFrameLoop()
+                } else {
+                    stopFrameLoop()
+                }
             }
 
             Log.d(TAG, "$caller isSetupComplete: $isSetupComplete")
@@ -256,9 +275,10 @@ class VoronoiWallpaperService : WallpaperService() {
         override fun onDestroy() {
             caller = "onDestroy"
             // 1. Stop all coroutines
-            wallpaperScope.cancel()
             preferencesJob?.cancel()
-            preferencesScope.cancel()
+            wallpaperScope.cancel()
+//            preferencesJob?.cancel()
+//            preferencesScope.cancel()
 
             // 2. Recycle bitmaps
             if (::framePool.isInitialized) {
