@@ -177,54 +177,45 @@ class VoronoiWallpaperService : WallpaperService() {
 
             stopFrameLoop()
             preferencesJob = preferencesScope.launch {
-                Log.d(TAG, "Settings loadSettings() started inside $caller")
 
-                // ... (after dimensions are set)
-                if (/*screenSizeChanged ||*/ !isSetupComplete) {
-                    Log.d(TAG, "Performing engine setup...")
-                    try {
 
-                        // 1. Load and apply settings
-                        loadSettings() // This is suspend, and it calls applySettings() internally at the end
+                Log.d(TAG, "Performing engine setup...")
+                try {
+                    isSetupComplete = false
+                    Log.d(TAG, "Settings loadSettings() started inside $caller")
+                    // 1. Load and apply settings
+                    loadSettings() // This is suspend, and it calls applySettings() internally at the end
 
-                        // 2. Initialize arrays (uses 'numPoints' from applied settings)
-                        initializeArrays()
+                    // 2. Initialize arrays (uses 'numPoints' from applied settings)
+                    initializeArrays()
 
-                        // 3. Initialize surface-dependent things (uses 'pixelStep' and dimensions)
-                        //    This function should also be improved to be idempotent.
-                        initializeSurface() // Make sure this uses current width, height, pixelStep
+                    // 3. Initialize surface-dependent things (uses 'pixelStep' and dimensions)
+                    //    This function should also be improved to be idempotent.
+                    initializeSurface() // Make sure this uses current width, height, pixelStep
 
-                        // 4. Initialize point positions and generate colors
-                        //    (uses 'numPoints', 'width', 'height', and initialized arrays)
-                        initializePoints()
+                    // 4. Initialize point positions and generate colors
+                    //    (uses 'numPoints', 'width', 'height', and initialized arrays)
+                    initializePoints()
 
-                        // 5. Update spatial grid if used
-                        if (useSpatialGrid) {
-                            updateGrid() // Make sure this uses current points and grid dimensions
-                        }
-
-    //                        isSetupComplete = true
-                        Log.d(TAG, "Engine setup complete. isSetupComplete: $isSetupComplete")
-
-                        if (visible) {
-                            startFrameLoop()
-                        } else {
-                            stopFrameLoop()
-                        }
-
-                        // ...
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error during engine setup: ${e.message}", e)
-                        isSetupComplete = false
-                        stopFrameLoop()
+                    // 5. Update spatial grid if used
+                    if (useSpatialGrid) {
+                        updateGrid() // Make sure this uses current points and grid dimensions
                     }
-                } else {
-                    // ... (handle case where setup is already complete)
+
+                    isSetupComplete = true
+//                    Log.d(TAG, "Engine setup complete. isSetupComplete: $isSetupComplete")
+
                     if (visible) {
                         startFrameLoop()
                     } else {
                         stopFrameLoop()
                     }
+
+                    // ...
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error during engine setup: ${e.message}", e)
+                    isSetupComplete = false
+                    stopFrameLoop()
                 }
             }
 
@@ -241,7 +232,7 @@ class VoronoiWallpaperService : WallpaperService() {
             if (visible && isSetupComplete) {
                 startFrameLoop()
             } else {
-                isSetupComplete = false
+//                isSetupComplete = false
                 stopFrameLoop()
             }
 
@@ -654,7 +645,7 @@ class VoronoiWallpaperService : WallpaperService() {
 
         private suspend fun loadSettings() {
             Log.d(TAG, "loadSettings start from $caller")
-            isSetupComplete = false
+
             try {
                 // VoronoiPreferences should be instantiated with the correct context
                 val context = applicationContext // Or this@VoronoiWallpaperService, etc.
@@ -673,7 +664,7 @@ class VoronoiWallpaperService : WallpaperService() {
             }
 
             applySettings()
-            isSetupComplete = true
+
             Log.d(TAG, "loadSettings end from $caller")
         }
 
@@ -747,11 +738,11 @@ class VoronoiWallpaperService : WallpaperService() {
             // Set the frame pool reference
             if (metrics) metricsLogger.setFramePool(framePool)
 
-            if (::frameBufferRect.isInitialized) frameBufferRect.set(0, 0, bufferWidth, bufferHeight)
-            else frameBufferRect = Rect(0, 0, bufferWidth, bufferHeight)
+            frameBufferRect = Rect(0, 0, bufferWidth, bufferHeight)
             screenRect = Rect(0, 0, width, height)
-            if (::bufferPixels.isInitialized) bufferPixels.toMutableList().clear()
-            else bufferPixels = IntArray(bufferWidth * bufferHeight)
+            if (!::bufferPixels.isInitialized || bufferPixels.size != bufferWidth * bufferHeight) {
+                bufferPixels = IntArray(bufferWidth * bufferHeight)
+            } // else, it's already the correct size, no need to clear primitive values
 
 
 //            initializeArrays()
@@ -768,23 +759,15 @@ class VoronoiWallpaperService : WallpaperService() {
                 grid = Array(gridWidth) { Array(gridHeight) { mutableListOf() } }
 //                updateGrid() // Initial population
             }
-//            else if (::grid.isInitialized && grid.isNotEmpty()) {
-//                // If spatial grid was previously used but now is not, clear/nullify the grid
-//                // Or just let it be garbage collected when useSpatialGrid is false.
-//                // Clearing might be good practice if it holds significant memory.
-//                // grid = emptyArray() // Or similar to release resources
-//                grid.forEach { row -> row.forEach { it.clear() } }
-//                grid = emptyArray()
-//            }
+            else if (::grid.isInitialized && grid.isNotEmpty()) {
+                // If spatial grid was previously used but now is not, clear/nullify the grid
+                // Or just let it be garbage collected when useSpatialGrid is false.
+                // Clearing might be good practice if it holds significant memory.
+                // grid = emptyArray() // Or similar to release resources
+                grid.forEach { row -> row.forEach { it.clear() } }
+                grid = emptyArray()
+            }
         }
-
-//        private fun checkReinitNeeded(): Boolean {
-//            return numPoints != settings.numPoints ||
-//                    drawPoints != settings.drawPoints ||
-//                    pixelStep != settings.pixelStep ||
-//                    useSpatialGrid != settings.useSpatialGrid
-//
-//        }
 
     }   // End of VoronoiEngine inner class
 }       // End of VoronoiWallpaperService
