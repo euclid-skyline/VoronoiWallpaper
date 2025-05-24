@@ -49,8 +49,6 @@ class VoronoiWallpaperService : WallpaperService() {
             invokeOnCompletion { frameChannel.close() } // Clean up channel
         })
 //        private val wallpaperScope = CoroutineScope(Dispatchers.Main.immediate + SupervisorJob())
-        // Coroutine scope tied to engine lifecycle
-//        private val preferencesScope = CoroutineScope(Dispatchers.Main.immediate + SupervisorJob())
 
         // Channel for passing rendered frames (double-buffered)
         private val frameChannel = Channel<Bitmap>(capacity = 2)
@@ -178,7 +176,6 @@ class VoronoiWallpaperService : WallpaperService() {
             screenSizeChanged = holder?.surfaceFrame?.width() != width || holder.surfaceFrame.height() != height
 
             preferencesJob?.cancel()
-//            preferencesJob = preferencesScope.launch {
             preferencesJob = wallpaperScope.launch {
                 setupEngine()
                 if (visible && isSetupComplete) {
@@ -190,66 +187,13 @@ class VoronoiWallpaperService : WallpaperService() {
             Log.d(TAG, "$caller end")
         }
 
-        private suspend fun setupEngine() {
-            Log.d(TAG, "setupEngine start called from $caller")
-//            preferencesJob?.cancel()
-//            preferencesJob = preferencesScope.launch {
-                Log.d(TAG, "Performing engine setup...")
-                try {
-                    isSetupComplete = false
-                    Log.d(TAG, "Settings loadSettings() started inside $caller")
-                    // 1. Load and apply settings
-                    loadSettings() // This is suspend, and it calls applySettings() internally at the end
-
-                    // 2. Initialize arrays (uses 'numPoints' from applied settings)
-                    initializeArrays()
-
-                    // 3. Initialize surface-dependent things (uses 'pixelStep' and dimensions)
-                    //    This function should also be improved to be idempotent.
-                    initializeSurface() // Make sure this uses current width, height, pixelStep
-
-                    // 4. Initialize point positions and generate colors
-                    //    (uses 'numPoints', 'width', 'height', and initialized arrays)
-                    initializePoints()
-
-                    // 5. Update spatial grid if used
-                    if (useSpatialGrid) {
-                        updateGrid() // Make sure this uses current points and grid dimensions
-                    }
-
-                    isSetupComplete = true
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error during engine setup: ${e.message}", e)
-                    isSetupComplete = false
-                }
-
-//                Log.d(TAG, "Engine setup complete.\n isSetupComplete: $isSetupComplete && visible: $visible")
-//
-//                if (visible && isSetupComplete) {
-//                    startFrameLoop()
-//                } else {
-//                    stopFrameLoop()
-//                }
-//            }
-            Log.d(TAG, "setupEngine end called from $caller")
-        }
-
         override fun onVisibilityChanged(visible: Boolean) {
             caller = "onVisibilityChanged"
             Log.d(TAG, "$caller start")
 
-
             this.visible = visible
 
-//            if (visible && isSetupComplete) {
-//                startFrameLoop()
-////                setupEngine()
-//            } else {
-//                stopFrameLoop()
-//            }
-
             preferencesJob?.cancel()
-//            preferencesJob = preferencesScope.launch {
             preferencesJob = wallpaperScope.launch {
                 setupEngine()
                 if (visible && isSetupComplete) {
@@ -262,6 +206,39 @@ class VoronoiWallpaperService : WallpaperService() {
             Log.d(TAG, "$caller isSetupComplete: $isSetupComplete")
             Log.d(TAG, "$caller visible: $visible")
             Log.d(TAG, "$caller end")
+        }
+
+        private suspend fun setupEngine() {
+            Log.d(TAG, "setupEngine start called from $caller")
+            Log.d(TAG, "Performing engine setup...")
+            try {
+                isSetupComplete = false
+                Log.d(TAG, "Settings loadSettings() started inside $caller")
+                // 1. Load and apply settings
+                loadSettings() // This is suspend, and it calls applySettings() internally at the end
+
+                // 2. Initialize arrays (uses 'numPoints' from applied settings)
+                initializeArrays()
+
+                // 3. Initialize surface-dependent things (uses 'pixelStep' and dimensions)
+                //    This function should also be improved to be idempotent.
+                initializeSurface() // Make sure this uses current width, height, pixelStep
+
+                // 4. Initialize point positions and generate colors
+                //    (uses 'numPoints', 'width', 'height', and initialized arrays)
+                initializePoints()
+
+                // 5. Update spatial grid if used
+                if (useSpatialGrid) {
+                    updateGrid() // Make sure this uses current points and grid dimensions
+                }
+
+                isSetupComplete = true
+            } catch (e: Exception) {
+                Log.e(TAG, "Error during engine setup: ${e.message}", e)
+                isSetupComplete = false
+            }
+            Log.d(TAG, "setupEngine end called from $caller")
         }
 
         override fun onSurfaceDestroyed(holder: SurfaceHolder) {
